@@ -1,0 +1,889 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Check,
+  Cpu,
+  Download,
+  FileCode2,
+  HardDrive,
+  Info,
+  MapPin,
+  Megaphone,
+  MessageSquare,
+  Phone,
+  Search,
+  Smartphone,
+  Wrench,
+  X,
+} from 'lucide-react';
+import {
+  CATEGORY_LABELS_BN,
+  CHIPSET_LABELS_BN,
+  CHIPSET_PLATFORMS,
+  FILE_CATEGORIES,
+  FlashFileRecord,
+  formatBytes,
+  formatPriceBn,
+  formatTimestamp,
+} from '../types/flashFile';
+import { SiteSettings } from '../types/siteSettings';
+import { triggerDirectWebDownload } from '../lib/directDownload';
+import { trackVisitorEvent } from '../lib/analyticsClient';
+import { FileDetailModal } from './FileDetailModal';
+import { LoadingSpinner } from './LoadingSpinner';
+import { ShopMapSection } from './ShopMapSection';
+import { ServicingGuideSection } from './ServicingGuideSection';
+import { AdSenseUnit } from './AdSenseBanner';
+
+interface PublicCatalogProps {
+  files: FlashFileRecord[];
+  loading: boolean;
+  error: string | null;
+  siteSettings: SiteSettings;
+  onOpenAdmin: () => void;
+}
+
+const YOUTUBE_BANNER_SRC =
+  '/src/assets/images/youtube_shop_banner_1794752535651.jpg';
+const BENCH_IMAGE_SRC =
+  '/src/assets/images/servicing_chip_workbench_1794725615159.jpg';
+
+export const PublicCatalog: React.FC<PublicCatalogProps> = ({
+  files,
+  loading,
+  error,
+  siteSettings,
+  onOpenAdmin,
+}) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [selectedBrand, setSelectedBrand] = useState<string>('All');
+  const [selectedChipset, setSelectedChipset] = useState<string>('All');
+  const [sortBy, setSortBy] = useState<'newest' | 'model' | 'size'>('newest');
+  const [detailFile, setDetailFile] = useState<FlashFileRecord | null>(null);
+
+  const [bannerImgError, setBannerImgError] = useState(false);
+  const [benchImgError, setBenchImgError] = useState(false);
+
+  // Per-post direct download spinner & feedback
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [startedId, setStartedId] = useState<string | null>(null);
+  const [downloadErr, setDownloadErr] = useState<string | null>(null);
+
+  // WhatsApp file request mini-form
+  const [reqBrand, setReqBrand] = useState('');
+  const [reqModel, setReqModel] = useState('');
+  const [reqNote, setReqNote] = useState('');
+
+  // Debounced search visitor tracking
+  const lastTrackedSearchRef = useRef('');
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) return;
+    const timer = setTimeout(() => {
+      if (lastTrackedSearchRef.current !== trimmed) {
+        lastTrackedSearchRef.current = trimmed;
+        trackVisitorEvent({
+          type: 'search',
+          path: '/#search-menu',
+          label: trimmed,
+        });
+      }
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const availableBrands = useMemo(() => {
+    const set = new Set<string>();
+    files.forEach((f) => {
+      if (f.brand) set.add(f.brand);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [files]);
+
+  const filteredFiles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const list = files.filter((file) => {
+      if (selectedCategory !== 'All' && file.category !== selectedCategory) {
+        return false;
+      }
+      if (selectedBrand !== 'All' && file.brand !== selectedBrand) {
+        return false;
+      }
+      if (selectedChipset !== 'All' && file.chipset !== selectedChipset) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        file.title.toLowerCase().includes(q) ||
+        file.brand.toLowerCase().includes(q) ||
+        file.model.toLowerCase().includes(q) ||
+        file.fileName.toLowerCase().includes(q) ||
+        file.chipset.toLowerCase().includes(q) ||
+        file.version.toLowerCase().includes(q) ||
+        file.notes.toLowerCase().includes(q)
+      );
+    });
+
+    if (sortBy === 'model') {
+      return [...list].sort((a, b) => a.model.localeCompare(b.model));
+    }
+    if (sortBy === 'size') {
+      return [...list].sort((a, b) => b.fileSizeBytes - a.fileSizeBytes);
+    }
+    return list;
+  }, [
+    files,
+    searchQuery,
+    selectedCategory,
+    selectedBrand,
+    selectedChipset,
+    sortBy,
+  ]);
+
+  const tickerText = useMemo(() => {
+    const latestModels = files
+      .slice(0, 4)
+      .map((f) => `${f.brand} ${f.model} (${formatPriceBn(f.price)})`)
+      .join('  •  ');
+    const baseItems = [
+      'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার — যেকোনো মডেলের মোবাইল ফ্ল্যাশ টুলস, স্টক ফার্মওয়্যার ও আনলক ফাইল সরাসরি ওয়েবসাইট থেকেই ডাউনলোড করুন',
+      'সরাসরি যোগাযোগ ও সাপোর্ট নম্বর: 01738266366 (কল ও হোয়াটসঅ্যাপ)',
+      'সকল ফাইল গুগল ড্রাইভ থেকে সরাসরি হাই-স্পিডে ডাউনলোড হয়',
+    ];
+    if (latestModels) {
+      baseItems.unshift(`নতুন আপলোড: ${latestModels}`);
+    }
+    return baseItems.join('   ★   ');
+  }, [files]);
+
+  const hasActiveFilters =
+    searchQuery.trim() !== '' ||
+    selectedCategory !== 'All' ||
+    selectedBrand !== 'All' ||
+    selectedChipset !== 'All';
+
+  const resetFilters = () => {
+    setSearchQuery('');
+    setSelectedCategory('All');
+    setSelectedBrand('All');
+    setSelectedChipset('All');
+  };
+
+  const handleDirectDownload = async (file: FlashFileRecord) => {
+    setDownloadingId(file.id);
+    setDownloadErr(null);
+    try {
+      await triggerDirectWebDownload(file.driveFileId, file.fileName);
+      setStartedId(file.id);
+      setTimeout(() => {
+        setStartedId((curr) => (curr === file.id ? null : curr));
+      }, 2800);
+    } catch (err) {
+      setDownloadErr(
+        err instanceof Error
+          ? err.message
+          : 'ডাউনলোড শুরু করতে সমস্যা হয়েছে।'
+      );
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleWhatsAppRequest = (e: React.FormEvent) => {
+    e.preventDefault();
+    const msg = `আসসালামু আলাইকুম জননী টেলিকম এন্ড সার্ভিসিং সেন্টার, আমার একটি মোবাইল ফ্ল্যাশ ফাইল প্রয়োজন।\nব্র্যান্ড: ${
+      reqBrand.trim() || 'যেকোনো'
+    }\nমডেল: ${reqModel.trim() || 'উল্লেখ করা হয়নি'}\nবিবরণ: ${
+      reqNote.trim() || 'দয়া করে ফাইলের প্রাপ্যতা জানাবেন।'
+    }`;
+    const url = `https://wa.me/8801738266366?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <div>
+      {/* YouTube-Style Channel Art Banner (BG Removed Studio Portrait) */}
+      <section className="relative overflow-hidden bg-slate-950 text-white">
+        <div className="mx-auto max-w-7xl">
+          <div className="relative min-h-[195px] sm:min-h-[230px] lg:min-h-[265px] w-full overflow-hidden">
+            {!bannerImgError ? (
+              <img
+                src={YOUTUBE_BANNER_SRC}
+                alt="জননী টেলিকম এন্ড সার্ভিসিং সেন্টার ব্যানার"
+                referrerPolicy="no-referrer"
+                onError={() => setBannerImgError(true)}
+                className="absolute inset-0 h-full w-full object-cover object-right-top"
+              />
+            ) : (
+              <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-900 to-sky-950" />
+            )}
+
+            {/* Contrast Scrim: preserves crisp left text & clear right portrait */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/85 sm:via-slate-950/75 to-transparent"
+            />
+
+            <div className="relative z-10 flex h-full min-h-[195px] sm:min-h-[230px] lg:min-h-[265px] flex-col justify-center px-4 py-6 sm:px-8 lg:px-10">
+              <div className="max-w-[66%] sm:max-w-[60%]">
+                <p className="text-[11px] font-medium tracking-wide text-sky-300 sm:text-xs">
+                  জননী টেলিকম এন্ড সার্ভিসিং সেন্টার
+                </p>
+                <h1
+                  className="mt-1.5 font-display text-xl font-bold leading-snug tracking-tight text-white sm:text-3xl lg:text-4xl"
+                  style={{ textWrap: 'balance' }}
+                >
+                  মোবাইল ফ্ল্যাশ টুলস ও ফার্মওয়্যার হাব
+                </h1>
+                <p className="mt-1.5 hidden max-w-xl text-xs leading-relaxed text-slate-300 sm:block sm:text-sm">
+                  যেকোনো মডেলের অফিসিয়াল ফার্মওয়্যার, ফ্ল্যাশ টুলস, ড্রাইভার ও
+                  আনলক ফাইল সরাসরি ওয়েবসাইট থেকেই ডাউনলোড করুন।
+                </p>
+
+                <div className="mt-4 flex flex-wrap items-center gap-2.5">
+                  <a
+                    href="#search-menu"
+                    className="btn-3d-primary inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-500 transition-colors whitespace-nowrap shrink-0 sm:px-4 sm:py-2.5 sm:text-sm"
+                  >
+                    <Search className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                    <span>ফাইল খুঁজুন</span>
+                  </a>
+                  <a
+                    href="tel:01738266366"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/85 px-3 py-2 font-mono text-xs font-semibold text-white hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0 sm:px-4 sm:py-2.5 sm:text-sm"
+                  >
+                    <Phone className="h-3.5 w-3.5 text-sky-400" />
+                    <span>01738266366</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Scrolling News Heading Text (News Ticker) */}
+      <div
+        className="border-y border-slate-800 bg-slate-900 text-white"
+        role="region"
+        aria-label="সর্বশেষ সংবাদ ও আপডেট"
+      >
+        <div className="mx-auto flex max-w-7xl items-center overflow-hidden">
+          <div className="z-10 flex items-center gap-1.5 bg-sky-600 px-3 py-2 text-xs font-bold text-white whitespace-nowrap shrink-0 sm:px-4">
+            <Megaphone className="h-3.5 w-3.5 shrink-0" />
+            <span>সর্বশেষ আপডেট</span>
+          </div>
+          <div className="relative flex-1 overflow-hidden py-2">
+            <div className="animate-news-marquee text-xs font-medium text-slate-100 sm:text-sm">
+              <span className="px-6 whitespace-nowrap">{tickerText}</span>
+              <span className="px-6 whitespace-nowrap" aria-hidden="true">
+                {tickerText}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Optional AdSense Top Responsive Unit (renders only when configured) */}
+      <AdSenseUnit
+        enabled={siteSettings.adsenseEnabled}
+        publisherId={siteSettings.adsensePublisherId}
+        slotId={siteSettings.adsenseSlotTop}
+      />
+
+      {/* File Search Menu & 3D Post Cards Catalog */}
+      <section
+        id="search-menu"
+        className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8"
+      >
+        <div
+          id="catalog"
+          className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:justify-between"
+        >
+          <div>
+            <h2 className="font-display text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+              ফাইল সার্চ মেনু ও ডাউনলোড পোস্ট
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-600 sm:text-sm">
+              মডেল বা ব্র্যান্ড লিখে সার্চ করুন এবং কোনো ড্রাইভ লিংকে না গিয়ে
+              সরাসরি ডাউনলোড করুন।
+            </p>
+          </div>
+          <p className="font-mono text-xs font-semibold text-slate-600 tabular-nums">
+            {loading
+              ? 'লোড হচ্ছে...'
+              : `মোট ${files.length}টি ফাইলের মধ্যে ${filteredFiles.length}টি`}
+          </p>
+        </div>
+
+        {/* Search & Filter Panel */}
+        <div className="card-3d mt-5 rounded-xl border border-slate-200 bg-white p-3.5 sm:p-5">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+            {/* Search Input */}
+            <div className="relative lg:col-span-6">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="মডেল (SM-A546E, RMX3710), ব্র্যান্ড বা টুলের নাম..."
+                aria-label="মডেল, ব্র্যান্ড বা টুলের নাম দিয়ে ফাইল খুঁজুন"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2.5 pl-10 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-600/20"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="সার্চ মুছুন"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 lg:col-span-6">
+              {/* Brand Dropdown */}
+              <select
+                value={selectedBrand}
+                onChange={(e) => setSelectedBrand(e.target.value)}
+                aria-label="ব্র্যান্ড ফিল্টার"
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20"
+              >
+                <option value="All">সব ব্র্যান্ড</option>
+                {availableBrands.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+
+              {/* Chipset Dropdown */}
+              <select
+                value={selectedChipset}
+                onChange={(e) => setSelectedChipset(e.target.value)}
+                aria-label="চিপসেট ফিল্টার"
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20"
+              >
+                <option value="All">সব চিপসেট</option>
+                {CHIPSET_PLATFORMS.map((c) => (
+                  <option key={c} value={c}>
+                    {CHIPSET_LABELS_BN[c]}
+                  </option>
+                ))}
+              </select>
+
+              {/* Sort Dropdown */}
+              <select
+                value={sortBy}
+                onChange={(e) =>
+                  setSortBy(e.target.value as 'newest' | 'model' | 'size')
+                }
+                aria-label="সাজানোর ধরন"
+                className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2.5 text-xs sm:text-sm text-slate-900 focus:border-sky-600 focus:outline-none focus:ring-2 focus:ring-sky-600/20"
+              >
+                <option value="newest">নতুন আগে</option>
+                <option value="model">মডেল (A–Z)</option>
+                <option value="size">বড় ফাইল</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Segmented Category Filter Tabs */}
+          <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3.5">
+            <div
+              className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1"
+              role="tablist"
+              aria-label="ক্যাটাগরি অনুযায়ী ফাইল ফিল্টার"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={selectedCategory === 'All'}
+                onClick={() => setSelectedCategory('All')}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  selectedCategory === 'All'
+                    ? 'bg-white text-slate-900 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                সব ফাইল
+              </button>
+              {FILE_CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  role="tab"
+                  aria-selected={selectedCategory === cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    selectedCategory === cat
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {CATEGORY_LABELS_BN[cat]}
+                </button>
+              ))}
+            </div>
+
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="text-xs font-medium text-sky-700 hover:text-sky-800 underline underline-offset-2 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                ফিল্টার রিসেট করুন
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Download Error Alert */}
+        {downloadErr && (
+          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 sm:text-sm">
+            <span>{downloadErr}</span>
+            <button
+              type="button"
+              onClick={() => setDownloadErr(null)}
+              className="rounded p-1 hover:bg-red-100 cursor-pointer"
+              aria-label="সতর্কতা বন্ধ করুন"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Catalog Error */}
+        {error && (
+          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-5 py-3.5 text-sm text-red-700">
+            ক্যাটালগ লোড করা যায়নি: {error}
+          </div>
+        )}
+
+        {/* Unique 3D Post Cards Grid / Loading Spinner / Empty State */}
+        <div className="mt-6">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
+              <LoadingSpinner
+                size="lg"
+                label="ফাইল ক্যাটালগ লোড হচ্ছে..."
+                className="text-sky-600 text-sm font-semibold"
+              />
+              <p className="mt-2 text-xs text-slate-500">
+                অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন
+              </p>
+            </div>
+          ) : filteredFiles.length === 0 ? (
+            <div className="card-3d rounded-xl border border-slate-200 bg-white px-6 py-14 text-center">
+              <p className="font-display text-base font-semibold text-slate-900">
+                {files.length === 0
+                  ? 'এখনো কোনো ফ্ল্যাশ ফাইল প্রকাশ করা হয়নি'
+                  : 'আপনার খোঁজা অনুযায়ী কোনো ফাইল পাওয়া যায়নি'}
+              </p>
+              <p className="mx-auto mt-1.5 max-w-md text-sm text-slate-500">
+                {files.length === 0
+                  ? 'অ্যাডমিন সাইন ইন করে যেকোনো মডেলের মোবাইল ফ্ল্যাশ টুলস ও ফার্মওয়্যার সরাসরি গুগল ড্রাইভে আপলোড করতে পারবেন।'
+                  : 'অনুগ্রহ করে সার্চ শব্দ, ব্র্যান্ড বা ক্যাটাগরি পরিবর্তন করে দেখুন অথবা 01738266366 নম্বরে অনুরোধ পাঠান।'}
+              </p>
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                {hasActiveFilters && (
+                  <button
+                    type="button"
+                    onClick={resetFilters}
+                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    সব ফিল্টার মুছুন
+                  </button>
+                )}
+                {files.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={onOpenAdmin}
+                    className="btn-3d-primary rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 cursor-pointer"
+                  >
+                    অ্যাডমিন লগইন ও আপলোড
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
+              {filteredFiles.map((file) => {
+                const isBusy = downloadingId === file.id;
+                const isDone = startedId === file.id;
+                const isPaid = Boolean(file.price && file.price > 0);
+
+                return (
+                  <article
+                    key={file.id}
+                    className="card-3d flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+                  >
+                    <div>
+                      {/* 3D Post Header: Beveled Icon + Brand/Model + App Price */}
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-sky-500 to-sky-700 text-white shadow-[0_4px_0_0_#0369a1]"
+                            aria-hidden="true"
+                          >
+                            <FileCode2 className="h-5 w-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-sky-700 truncate">
+                              {file.brand}
+                            </p>
+                            <p className="font-mono text-xs font-bold text-slate-900 truncate">
+                              {file.model}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* App / File Price */}
+                        <div className="shrink-0 text-right">
+                          <span
+                            className={`font-mono text-sm font-bold tabular-nums ${
+                              isPaid ? 'text-amber-700' : 'text-emerald-700'
+                            }`}
+                          >
+                            {formatPriceBn(file.price)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Post Title */}
+                      <h3 className="mt-4 font-display text-base font-bold leading-snug text-slate-900">
+                        <button
+                          type="button"
+                          onClick={() => setDetailFile(file)}
+                          className="text-left hover:text-sky-700 transition-colors cursor-pointer"
+                        >
+                          {file.title}
+                        </button>
+                      </h3>
+
+                      {/* Clean Unboxed Metadata */}
+                      <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                        <span className="font-medium text-slate-700">
+                          {CATEGORY_LABELS_BN[file.category] || file.category}
+                        </span>
+                        <span aria-hidden="true"> · </span>
+                        <span>
+                          {CHIPSET_LABELS_BN[file.chipset] || file.chipset}
+                        </span>
+                        <span aria-hidden="true"> · </span>
+                        <span className="font-mono text-slate-700">
+                          {file.version}
+                        </span>
+                      </p>
+
+                      <p className="mt-1 text-xs text-slate-500 tabular-nums">
+                        সাইজ:{' '}
+                        <span className="font-mono font-semibold text-slate-800">
+                          {formatBytes(file.fileSizeBytes)}
+                        </span>
+                        <span aria-hidden="true"> · </span>
+                        <span>{formatTimestamp(file.createdAt)}</span>
+                      </p>
+
+                      {file.notes && (
+                        <p className="mt-2.5 line-clamp-2 text-xs leading-relaxed text-slate-600">
+                          {file.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Card Footer: Mobile-friendly >=44px touch targets */}
+                    <div className="mt-4 flex items-center gap-2.5 border-t border-slate-100 pt-3.5">
+                      <button
+                        type="button"
+                        onClick={() => setDetailFile(file)}
+                        className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
+                      >
+                        <Info className="h-3.5 w-3.5" />
+                        <span>বিস্তারিত</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDirectDownload(file)}
+                        disabled={isBusy}
+                        className="btn-3d-primary inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700 transition-colors cursor-pointer disabled:opacity-75"
+                      >
+                        {isBusy ? (
+                          <LoadingSpinner
+                            size="sm"
+                            label="ডাউনলোড হচ্ছে..."
+                          />
+                        ) : isDone ? (
+                          <>
+                            <Check className="h-4 w-4" />
+                            <span>ডাউনলোড শুরু হয়েছে</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4" />
+                            <span>
+                              {isPaid
+                                ? `ডাউনলোড (${formatPriceBn(file.price)})`
+                                : 'সরাসরি ডাউনলোড'}
+                            </span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Compact Capability Strip */}
+      <section className="border-t border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="flex items-start gap-3">
+              <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+              <div>
+                <p className="font-display text-sm font-semibold text-slate-900">
+                  যেকোনো মডেলের সাপোর্ট
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  Samsung, Xiaomi, Realme, Oppo, Vivo, Infinix, Tecno ও সব ব্র্যান্ড
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <HardDrive className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+              <div>
+                <p className="font-display text-sm font-semibold text-slate-900">
+                  ওয়েবসাইটে সরাসরি ডাউনলোড
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  গুগল ড্রাইভে না নিয়ে সরাসরি ব্রাউজারে ফাইল ডাউনলোড সুবিধা
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <Cpu className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+              <div>
+                <p className="font-display text-sm font-semibold text-slate-900">
+                  সব চিপসেট প্ল্যাটফর্ম
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  MTK, Qualcomm, Unisoc SPD, Exynos, Kirin ও Apple
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <Phone className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+              <div>
+                <p className="font-display text-sm font-semibold text-slate-900">
+                  সরাসরি শপ হেল্পলাইন
+                </p>
+                <p className="mt-0.5 text-xs text-slate-600">
+                  কল ও হোয়াটসঅ্যাপ:{' '}
+                  <a
+                    href="tel:01738266366"
+                    className="font-mono font-semibold text-slate-900 hover:text-sky-700"
+                  >
+                    01738266366
+                  </a>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Servicing Center & Contact Section */}
+      <section
+        id="servicing"
+        className="border-t border-slate-200 bg-slate-50 py-12"
+      >
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
+            {/* Left Image */}
+            <div className="lg:col-span-5">
+              <div className="card-3d relative h-64 w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-900 lg:h-full lg:min-h-[320px]">
+                {!benchImgError ? (
+                  <img
+                    src={BENCH_IMAGE_SRC}
+                    alt="মোবাইল হার্ডওয়্যার আইসি ও সার্ভিসিং ওয়ার্কবেঞ্চ"
+                    referrerPolicy="no-referrer"
+                    onError={() => setBenchImgError(true)}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full flex-col items-center justify-center bg-slate-900 p-6 text-slate-300">
+                    <Wrench className="h-10 w-10 text-sky-400" />
+                    <p className="mt-3 font-display text-sm font-semibold text-white">
+                      হার্ডওয়্যার ও EMMC/UFS সার্ভিসিং
+                    </p>
+                  </div>
+                )}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 via-slate-950/45 to-transparent px-5 py-4">
+                  <p className="font-display text-sm font-semibold text-white">
+                    সম্পূর্ণ মোবাইল হার্ডওয়্যার ও সফটওয়্যার সেবা
+                  </p>
+                  <p className="text-xs text-slate-200">
+                    ডেড বুট রিপেয়ার · কান্ট্রি আনলক · লজিক বোর্ড সার্ভিসিং
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Services & Contact / File Request */}
+            <div
+              id="contact"
+              className="flex flex-col justify-between lg:col-span-7"
+            >
+              <div>
+                <p className="text-xs font-medium text-slate-500">
+                  দোকান ও যোগাযোগের তথ্য
+                </p>
+                <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-slate-900">
+                  {siteSettings.shopName}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">
+                  কোনো নির্দিষ্ট মডেলের ফ্ল্যাশ ফাইল, ডাম্প ফাইল বা প্রফেশনাল
+                  মোবাইল সার্ভিসিং প্রয়োজন হলে সরাসরি কল করুন অথবা নিচের ফর্মের
+                  মাধ্যমে অনুরোধ পাঠান।
+                </p>
+
+                <div className="mt-5 grid grid-cols-1 gap-4 border-y border-slate-200 py-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">
+                      সরাসরি যোগাযোগ নম্বর
+                    </p>
+                    <a
+                      href="tel:01738266366"
+                      className="mt-1 inline-flex items-center gap-2 font-mono text-xl font-bold text-slate-900 hover:text-sky-700"
+                    >
+                      <Phone className="h-4 w-4 text-sky-600" />
+                      <span>01738266366</span>
+                    </a>
+                    <p className="mt-1 text-xs text-slate-500">
+                      কল এবং হোয়াটসঅ্যাপ সাপোর্ট চালু আছে
+                    </p>
+                    {siteSettings.shopAddress && (
+                      <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-700">
+                        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
+                        <span>{siteSettings.shopAddress}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">
+                      আমাদের সার্ভিসিং সেবাসমূহ
+                    </p>
+                    <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                      <li>ফার্মওয়্যার ফ্ল্যাশিং, আনব্রিক ও IMEI/বেসব্যান্ড সমাধান</li>
+                      <li>FRP, MDM এবং কান্ট্রি নেটওয়ার্ক আনলকিং</li>
+                      <li>হার্ডওয়্যার আইসি, চার্জিং ও ডিসপ্লে সার্ভিসিং</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              {/* Request Any Model File Form */}
+              <form
+                onSubmit={handleWhatsAppRequest}
+                className="card-3d mt-5 rounded-xl border border-slate-200 bg-white p-4 sm:p-5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="font-display text-sm font-semibold text-slate-900">
+                    হোয়াটসঅ্যাপে যেকোনো মডেলের ফাইল রিকোয়েস্ট করুন
+                  </h3>
+                  <span className="font-mono text-xs text-slate-500">
+                    01738266366
+                  </span>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <input
+                    type="text"
+                    placeholder="ব্র্যান্ড (যেমন: Oppo)"
+                    value={reqBrand}
+                    onChange={(e) => setReqBrand(e.target.value)}
+                    className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="মডেল (যেমন: CPH2477)"
+                    value={reqModel}
+                    onChange={(e) => setReqModel(e.target.value)}
+                    required
+                    className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none"
+                  />
+                  <input
+                    type="text"
+                    placeholder="কী ফাইল লাগবে (Firmware/FRP)"
+                    value={reqNote}
+                    onChange={(e) => setReqNote(e.target.value)}
+                    className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none"
+                  />
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="submit"
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>ফাইল রিকোয়েস্ট পাঠান</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {/* Shop Google Maps Location (Shown ONLY when toggled ON by Admin) */}
+          {siteSettings.shopMapEnabled && (
+            <div className="mt-8 card-3d rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+              <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4 text-sky-600" />
+                  <h3 className="font-display text-base font-bold text-slate-900">
+                    আমাদের দোকানের গুগল ম্যাপ লোকেশন
+                  </h3>
+                </div>
+                {siteSettings.shopAddress && (
+                  <p className="text-xs text-slate-600">
+                    {siteSettings.shopAddress}
+                  </p>
+                )}
+              </div>
+              <ShopMapSection
+                shopName={siteSettings.shopName}
+                shopAddress={siteSettings.shopAddress}
+                lat={siteSettings.shopLat}
+                lng={siteSettings.shopLng}
+                pinSet={siteSettings.shopPinSet}
+              />
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Rich Editorial Bangla Guide & FAQ (SEO + Google AdSense Readiness) */}
+      <ServicingGuideSection />
+
+      {/* Optional AdSense Bottom Responsive Unit */}
+      <AdSenseUnit
+        enabled={siteSettings.adsenseEnabled}
+        publisherId={siteSettings.adsensePublisherId}
+        slotId={siteSettings.adsenseSlotBottom}
+      />
+
+      <FileDetailModal
+        file={detailFile}
+        onClose={() => setDetailFile(null)}
+      />
+    </div>
+  );
+};

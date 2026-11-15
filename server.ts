@@ -1,0 +1,733 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import express from 'express';
+import path from 'node:path';
+import { Readable } from 'node:stream';
+import type { ReadableStream as WebReadableStream } from 'node:stream/web';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const DRIVE_ID_REGEX = /^[a-zA-Z0-9_-]{5,120}$/;
+const DATA_DIR = path.resolve(__dirname, '.data');
+const ANALYTICS_FILE = path.join(DATA_DIR, 'visitor-analytics.json');
+const ADS_CONFIG_FILE = path.join(DATA_DIR, 'ads-config.json');
+const FIREBASE_CONFIG_FILE = path.resolve(__dirname, 'firebase-applet-config.json');
+const BOOTSTRAPPED_ADMIN_EMAIL = 'noreply.jeetbuzzaff@gmail.com';
+
+interface VisitorEvent {
+  id: string;
+  type: 'pageview' | 'search' | 'download';
+  path: string;
+  label: string;
+  device: 'mobile' | 'desktop' | 'tablet';
+  browser: string;
+  os: string;
+  referrer: string;
+  timestamp: string;
+}
+
+interface DailyStatBucket {
+  visits: number;
+  downloads: number;
+  searches: number;
+  uniqueHashes: string[];
+}
+
+interface StoredAnalytics {
+  totalVisits: number;
+  totalDownloads: number;
+  totalSearches: number;
+  uniqueHashes: string[];
+  deviceCounts: {
+    mobile: number;
+    desktop: number;
+    tablet: number;
+  };
+  dailyStats: Record<string, DailyStatBucket>;
+  topSearches: Record<string, number>;
+  topDownloads: Record<string, { title: string; count: number }>;
+  recentEvents: VisitorEvent[];
+  updatedAt: string;
+}
+
+interface StoredAdsConfig {
+  adsensePublisherId: string;
+  adsenseEnabled: boolean;
+}
+
+function createEmptyAnalytics(): StoredAnalytics {
+  return {
+    totalVisits: 0,
+    totalDownloads: 0,
+    totalSearches: 0,
+    uniqueHashes: [],
+    deviceCounts: { mobile: 0, desktop: 0, tablet: 0 },
+    dailyStats: {},
+    topSearches: {},
+    topDownloads: {},
+    recentEvents: [],
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+let analyticsCache: StoredAnalytics | null = null;
+let adsConfigCache: StoredAdsConfig = {
+  adsensePublisherId: '',
+  adsenseEnabled: false,
+};
+let firebaseApiKeyCache: string | null = null;
+let firebaseProjectIdCache: string | null = null;
+let firebaseDbIdCache: string | null = null;
+
+async function ensureDataDir() {
+  await fs.mkdir(DATA_DIR, { recursive: true });
+}
+
+async function loadFirebaseConfig() {
+  if (firebaseApiKeyCache && firebaseProjectIdCache && firebaseDbIdCache) {
+    return {
+      apiKey: firebaseApiKeyCache,
+      projectId: firebaseProjectIdCache,
+      databaseId: firebaseDbIdCache,
+    };
+  }
+  const raw = await fs.readFile(FIREBASE_CONFIG_FILE, 'utf8');
+  const parsed = JSON.parse(raw) as {
+    apiKey: string;
+    projectId: string;
+    firestoreDatabaseId: string;
+  };
+  firebaseApiKeyCache = parsed.apiKey;
+  firebaseProjectIdCache = parsed.projectId;
+  firebaseDbIdCache = parsed.firestoreDatabaseId || '(default)';
+  return {
+    apiKey: firebaseApiKeyCache,
+    projectId: firebaseProjectIdCache,
+    databaseId: firebaseDbIdCache,
+  };
+}
+
+async function loadAnalytics(): Promise<StoredAnalytics> {
+  if (analyticsCache) return analyticsCache;
+  try {
+    const raw = await fs.readFile(ANALYTICS_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<StoredAnalytics>;
+    analyticsCache = {
+      ...createEmptyAnalytics(),
+      ...parsed,
+      deviceCounts: {
+        mobile: parsed.deviceCounts?.mobile ?? 0,
+        desktop: parsed.deviceCounts?.desktop ?? 0,
+        tablet: parsed.deviceCounts?.tablet ?? 0,
+      },
+      uniqueHashes: Array.isArray(parsed.uniqueHashes) ? parsed.uniqueHashes : [],
+      dailyStats: parsed.dailyStats || {},
+      topSearches: parsed.topSearches || {},
+      topDownloads: parsed.topDownloads || {},
+      recentEvents: Array.isArray(parsed.recentEvents) ? parsed.recentEvents : [],
+    };
+  } catch {
+    analyticsCache = createEmptyAnalytics();
+  }
+  return analyticsCache;
+}
+
+async function persistAnalytics(data: StoredAnalytics) {
+  analyticsCache = data;
+  try {
+    await ensureDataDir();
+    await fs.writeFile(ANALYTICS_FILE, JSON.stringify(data), 'utf8');
+  } catch (err) {
+    console.error('Failed to persist visitor analytics:', err);
+  }
+}
+
+async function loadAdsConfig(): Promise<StoredAdsConfig> {
+  try {
+    const raw = await fs.readFile(ADS_CONFIG_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<StoredAdsConfig>;
+    adsConfigCache = {
+      adsensePublisherId:
+        typeof parsed.adsensePublisherId === 'string'
+          ? parsed.adsensePublisherId
+          : '',
+      adsenseEnabled: Boolean(parsed.adsenseEnabled),
+    };
+  } catch {
+    // keep default
+  }
+  return adsConfigCache;
+}
+
+async function persistAdsConfig(config: StoredAdsConfig) {
+  adsConfigCache = config;
+  try {
+    await ensureDataDir();
+    await fs.writeFile(ADS_CONFIG_FILE, JSON.stringify(config), 'utf8');
+  } catch (err) {
+    console.error('Failed to persist ads config:', err);
+  }
+}
+
+function getTodayKey(): string {
+  // Use Asia/Dhaka date string for local shop daily reporting
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function parseUserAgent(ua: string): {
+  device: 'mobile' | 'desktop' | 'tablet';
+  browser: string;
+  os: string;
+} {
+  const lower = ua.toLowerCase();
+  let device: 'mobile' | 'desktop' | 'tablet' = 'desktop';
+  if (/ipad|tablet|playbook|silk/i.test(lower) || (/android/i.test(lower) && !/mobile/i.test(lower))) {
+    device = 'tablet';
+  } else if (/mobile|iphone|ipod|android.*mobile|opera mini|iemobile/i.test(lower)) {
+    device = 'mobile';
+  }
+
+  let browser = 'Other';
+  if (lower.includes('edg/')) browser = 'Edge';
+  else if (lower.includes('opr/') || lower.includes('opera')) browser = 'Opera';
+  else if (lower.includes('chrome/') && !lower.includes('chromium')) browser = 'Chrome';
+  else if (lower.includes('firefox/')) browser = 'Firefox';
+  else if (lower.includes('safari/') && !lower.includes('chrome')) browser = 'Safari';
+
+  let os = 'Other';
+  if (lower.includes('android')) os = 'Android';
+  else if (lower.includes('iphone') || lower.includes('ipad')) os = 'iOS';
+  else if (lower.includes('windows')) os = 'Windows';
+  else if (lower.includes('mac os')) os = 'macOS';
+  else if (lower.includes('linux')) os = 'Linux';
+
+  return { device, browser, os };
+}
+
+function hashVisitorKey(req: express.Request, clientVisitorId?: string): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = Array.isArray(forwarded)
+    ? forwarded[0]
+    : typeof forwarded === 'string'
+      ? forwarded.split(',')[0].trim()
+      : req.socket.remoteAddress || 'unknown';
+  const ua = req.headers['user-agent'] || '';
+  const basis = clientVisitorId ? `${clientVisitorId}:${ua}` : `${ip}:${ua}`;
+  return crypto.createHash('sha256').update(basis).digest('hex').slice(0, 20);
+}
+
+async function recordEvent(params: {
+  type: 'pageview' | 'search' | 'download';
+  path: string;
+  label: string;
+  referrer: string;
+  req: express.Request;
+  visitorId?: string;
+}) {
+  const data = await loadAnalytics();
+  const ua = String(params.req.headers['user-agent'] || '');
+  const { device, browser, os } = parseUserAgent(ua);
+  const vHash = hashVisitorKey(params.req, params.visitorId);
+  const dayKey = getTodayKey();
+
+  if (!data.dailyStats[dayKey]) {
+    data.dailyStats[dayKey] = {
+      visits: 0,
+      downloads: 0,
+      searches: 0,
+      uniqueHashes: [],
+    };
+  }
+  const bucket = data.dailyStats[dayKey];
+
+  if (!data.uniqueHashes.includes(vHash)) {
+    data.uniqueHashes.push(vHash);
+    if (data.uniqueHashes.length > 5000) {
+      data.uniqueHashes = data.uniqueHashes.slice(-4000);
+    }
+  }
+  if (!bucket.uniqueHashes.includes(vHash)) {
+    bucket.uniqueHashes.push(vHash);
+    if (bucket.uniqueHashes.length > 2000) {
+      bucket.uniqueHashes = bucket.uniqueHashes.slice(-1500);
+    }
+  }
+
+  if (params.type === 'pageview') {
+    data.totalVisits += 1;
+    bucket.visits += 1;
+    data.deviceCounts[device] += 1;
+  } else if (params.type === 'download') {
+    data.totalDownloads += 1;
+    bucket.downloads += 1;
+    const cleanTitle = (params.label || 'Unknown File').trim().slice(0, 120);
+    const key = cleanTitle.toLowerCase();
+    if (!data.topDownloads[key]) {
+      data.topDownloads[key] = { title: cleanTitle, count: 0 };
+    }
+    data.topDownloads[key].count += 1;
+  } else if (params.type === 'search') {
+    data.totalSearches += 1;
+    bucket.searches += 1;
+    const term = params.label.trim().slice(0, 60);
+    if (term.length >= 2) {
+      data.topSearches[term] = (data.topSearches[term] || 0) + 1;
+    }
+  }
+
+  const event: VisitorEvent = {
+    id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    type: params.type,
+    path: params.path.slice(0, 120),
+    label: params.label.slice(0, 120),
+    device,
+    browser,
+    os,
+    referrer: params.referrer.slice(0, 160),
+    timestamp: new Date().toISOString(),
+  };
+
+  data.recentEvents.unshift(event);
+  if (data.recentEvents.length > 150) {
+    data.recentEvents = data.recentEvents.slice(0, 150);
+  }
+
+  // Prune daily buckets beyond last 30 days
+  const dayKeys = Object.keys(data.dailyStats).sort();
+  if (dayKeys.length > 30) {
+    for (const oldKey of dayKeys.slice(0, dayKeys.length - 30)) {
+      delete data.dailyStats[oldKey];
+    }
+  }
+
+  data.updatedAt = new Date().toISOString();
+  await persistAnalytics(data);
+}
+
+async function verifyAdminBearerToken(authHeader: string | undefined): Promise<{
+  uid: string;
+  email: string;
+} | null> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const idToken = authHeader.slice(7).trim();
+  if (!idToken) return null;
+
+  try {
+    const { apiKey, projectId, databaseId } = await loadFirebaseConfig();
+    const lookupRes = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!lookupRes.ok) return null;
+    const lookupJson = (await lookupRes.json()) as {
+      users?: Array<{
+        localId: string;
+        email?: string;
+        emailVerified?: boolean;
+      }>;
+    };
+    const user = lookupJson.users?.[0];
+    if (!user || !user.emailVerified || !user.email) return null;
+
+    if (user.email === BOOTSTRAPPED_ADMIN_EMAIL) {
+      return { uid: user.localId, email: user.email };
+    }
+
+    // Check admins/{uid} via Firestore REST using the caller's own Firebase ID token
+    const adminDocUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+      projectId
+    )}/databases/${encodeURIComponent(databaseId)}/documents/admins/${encodeURIComponent(
+      user.localId
+    )}`;
+    const adminDocRes = await fetch(adminDocUrl, {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    if (!adminDocRes.ok) return null;
+    const adminDoc = (await adminDocRes.json()) as {
+      fields?: { role?: { stringValue?: string } };
+    };
+    if (adminDoc.fields?.role?.stringValue === 'admin') {
+      return { uid: user.localId, email: user.email };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function getRequestOrigin(req: express.Request): string {
+  const configured = process.env.APP_URL?.trim();
+  if (configured && configured !== 'MY_APP_URL') {
+    return configured.replace(/\/+$/, '');
+  }
+  const protoHeader = req.headers['x-forwarded-proto'];
+  const proto =
+    typeof protoHeader === 'string'
+      ? protoHeader.split(',')[0].trim()
+      : req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:3000';
+  return `${proto}://${host}`;
+}
+
+function sanitizeFileName(raw: string): string {
+  const cleaned = raw.replace(/[/\\?%*:|"<>]/g, '_').trim();
+  return cleaned || 'flash_file.bin';
+}
+
+function extractDriveConfirmUrl(html: string, driveFileId: string): string | null {
+  const confirmMatch = html.match(/name="confirm"\s+value="([^"]+)"/i);
+  const uuidMatch = html.match(/name="uuid"\s+value="([^"]+)"/i);
+  const actionMatch = html.match(/action="([^"]+)"/i);
+
+  const baseUrl = actionMatch
+    ? actionMatch[1].replace(/&amp;/g, '&')
+    : 'https://drive.usercontent.google.com/download';
+
+  const url = new URL(baseUrl);
+  url.searchParams.set('id', driveFileId);
+  url.searchParams.set('export', 'download');
+  url.searchParams.set('confirm', confirmMatch ? confirmMatch[1] : 't');
+  if (uuidMatch) {
+    url.searchParams.set('uuid', uuidMatch[1]);
+  }
+  return url.toString();
+}
+
+async function resolveDriveStreamResponse(driveFileId: string) {
+  const initialUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(driveFileId)}`;
+  let response = await fetch(initialUrl, {
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; JonnoiTelecomPortal/1.0)',
+    },
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('text/html')) {
+    const html = await response.text();
+    const cookies = response.headers.get('set-cookie') || '';
+    const confirmUrl = extractDriveConfirmUrl(html, driveFileId);
+    if (confirmUrl) {
+      response = await fetch(confirmUrl, {
+        redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; JonnoiTelecomPortal/1.0)',
+          ...(cookies ? { Cookie: cookies } : {}),
+        },
+      });
+    }
+  }
+
+  return response;
+}
+
+async function createServer() {
+  const app = express();
+  const PORT = Number(process.env.PORT) || 3000;
+  const isProd = process.env.NODE_ENV === 'production';
+
+  await loadAnalytics();
+  await loadAdsConfig();
+
+  app.use(express.json({ limit: '32kb' }));
+
+  // SEO: robots.txt
+  app.get('/robots.txt', (req, res) => {
+    const origin = getRequestOrigin(req);
+    res.type('text/plain').send(
+      [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /api/',
+        `Sitemap: ${origin}/sitemap.xml`,
+      ].join('\n')
+    );
+  });
+
+  // SEO: Dynamic sitemap.xml
+  app.get('/sitemap.xml', (req, res) => {
+    const origin = getRequestOrigin(req);
+    const today = new Date().toISOString().split('T')[0];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>${origin}/</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>${origin}/#search-menu</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>${origin}/#servicing</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>${origin}/#guide</loc>
+    <lastmod>${today}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+</urlset>`;
+    res.type('application/xml').send(xml);
+  });
+
+  // AdSense: ads.txt verification file
+  app.get('/ads.txt', async (_req, res) => {
+    const cfg = await loadAdsConfig();
+    const cleanId = cfg.adsensePublisherId.replace(/^ca-/, '').trim();
+    if (cleanId && /^pub-\d{10,20}$/.test(cleanId)) {
+      res
+        .type('text/plain')
+        .send(`google.com, ${cleanId}, DIRECT, f08c47fec0942fa0\n`);
+      return;
+    }
+    res
+      .type('text/plain')
+      .send(
+        '# Jonnoi Telecom & Servicing Center ads.txt\n# Configure your AdSense Publisher ID (ca-pub-...) in the Admin Panel to activate.\n'
+      );
+  });
+
+  // Admin: sync AdSense publisher ID for ads.txt
+  app.post('/api/admin/ads-config', async (req, res) => {
+    const admin = await verifyAdminBearerToken(req.headers.authorization);
+    if (!admin) {
+      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+      return;
+    }
+    const pubId =
+      typeof req.body?.adsensePublisherId === 'string'
+        ? req.body.adsensePublisherId.trim()
+        : '';
+    if (pubId && !/^ca-pub-\d{10,20}$/.test(pubId)) {
+      res.status(400).json({ error: 'Invalid AdSense Publisher ID format.' });
+      return;
+    }
+    await persistAdsConfig({
+      adsensePublisherId: pubId,
+      adsenseEnabled: Boolean(req.body?.adsenseEnabled),
+    });
+    res.json({ ok: true });
+  });
+
+  // Visitor Tracking: Record event
+  app.post('/api/analytics/track', async (req, res) => {
+    const rawType = req.body?.type;
+    if (
+      rawType !== 'pageview' &&
+      rawType !== 'search' &&
+      rawType !== 'download'
+    ) {
+      res.status(400).json({ error: 'Invalid analytics event type.' });
+      return;
+    }
+
+    const eventPath =
+      typeof req.body?.path === 'string' ? req.body.path : '/';
+    const label =
+      typeof req.body?.label === 'string' ? req.body.label : '';
+    const visitorId =
+      typeof req.body?.visitorId === 'string' ? req.body.visitorId : undefined;
+    const referrer =
+      typeof req.body?.referrer === 'string' ? req.body.referrer : 'Direct';
+
+    await recordEvent({
+      type: rawType,
+      path: eventPath,
+      label,
+      referrer,
+      req,
+      visitorId,
+    });
+    res.status(204).end();
+  });
+
+  // Admin: Visitor Analytics Summary
+  app.get('/api/analytics/summary', async (req, res) => {
+    const admin = await verifyAdminBearerToken(req.headers.authorization);
+    if (!admin) {
+      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+      return;
+    }
+
+    const data = await loadAnalytics();
+    const todayKey = getTodayKey();
+    const todayBucket = data.dailyStats[todayKey] || {
+      visits: 0,
+      downloads: 0,
+      searches: 0,
+      uniqueHashes: [],
+    };
+
+    const dailyTrend = Object.keys(data.dailyStats)
+      .sort()
+      .slice(-7)
+      .map((date) => ({
+        date,
+        visits: data.dailyStats[date].visits,
+        uniqueVisitors: data.dailyStats[date].uniqueHashes.length,
+        downloads: data.dailyStats[date].downloads,
+        searches: data.dailyStats[date].searches,
+      }));
+
+    const topSearches = Object.entries(data.topSearches)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([term, count]) => ({ term, count }));
+
+    const topDownloads = Object.values(data.topDownloads)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 6);
+
+    res.json({
+      totalVisits: data.totalVisits,
+      todayVisits: todayBucket.visits,
+      uniqueVisitors: data.uniqueHashes.length,
+      todayUniqueVisitors: todayBucket.uniqueHashes.length,
+      totalDownloads: data.totalDownloads,
+      totalSearches: data.totalSearches,
+      deviceCounts: data.deviceCounts,
+      dailyTrend,
+      topSearches,
+      topDownloads,
+      recentEvents: data.recentEvents.slice(0, 25),
+      updatedAt: data.updatedAt,
+    });
+  });
+
+  // Admin: Reset Visitor Analytics
+  app.post('/api/analytics/reset', async (req, res) => {
+    const admin = await verifyAdminBearerToken(req.headers.authorization);
+    if (!admin) {
+      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+      return;
+    }
+    const fresh = createEmptyAnalytics();
+    await persistAnalytics(fresh);
+    res.json({ ok: true });
+  });
+
+  // Direct Web Download Proxy (Never redirects users to Google Drive)
+  app.get('/api/download/:driveFileId', async (req, res) => {
+    const driveFileId = req.params.driveFileId;
+    if (!DRIVE_ID_REGEX.test(driveFileId)) {
+      res.status(400).json({ error: 'Invalid file identifier.' });
+      return;
+    }
+
+    const rawName = typeof req.query.name === 'string' ? req.query.name : 'download.bin';
+    const fileName = sanitizeFileName(rawName);
+    const isProbe = req.query.probe === '1';
+
+    try {
+      const upstream = await resolveDriveStreamResponse(driveFileId);
+      const upstreamType = upstream.headers.get('content-type') || 'application/octet-stream';
+
+      if (!upstream.ok || upstreamType.includes('text/html')) {
+        if (upstream.body) {
+          await upstream.body.cancel().catch(() => {});
+        }
+        res.status(404).json({
+          ready: false,
+          error: 'ফাইলটি সরাসরি ডাউনলোডের জন্য উন্মুক্ত নয় অথবা গুগল ড্রাইভে পাওয়া যায়নি।',
+        });
+        return;
+      }
+
+      if (isProbe) {
+        const contentLength = upstream.headers.get('content-length');
+        if (upstream.body) {
+          await upstream.body.cancel().catch(() => {});
+        }
+        res.json({
+          ready: true,
+          contentType: upstreamType,
+          contentLength: contentLength ? Number(contentLength) : null,
+        });
+        return;
+      }
+
+      // Record real direct download event server-side
+      recordEvent({
+        type: 'download',
+        path: '/api/download',
+        label: fileName,
+        referrer: String(req.headers.referer || 'Direct'),
+        req,
+      }).catch(() => {});
+
+      res.setHeader('Content-Type', upstreamType);
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${fileName.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+      );
+      const contentLength = upstream.headers.get('content-length');
+      if (contentLength) {
+        res.setHeader('Content-Length', contentLength);
+      }
+
+      if (!upstream.body) {
+        res.status(502).json({ error: 'Empty stream from storage.' });
+        return;
+      }
+
+      const nodeStream = Readable.fromWeb(
+        upstream.body as unknown as WebReadableStream<Uint8Array>
+      );
+      nodeStream.on('error', (err) => {
+        console.error('Stream error:', err);
+        if (!res.headersSent) {
+          res.status(500).end();
+        } else {
+          res.destroy();
+        }
+      });
+      nodeStream.pipe(res);
+    } catch (err) {
+      console.error('Direct download proxy error:', err);
+      res.status(500).json({
+        ready: false,
+        error: 'ডাউনলোড শুরু করতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।',
+      });
+    }
+  });
+
+  if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.resolve(__dirname, 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server listening on http://0.0.0.0:${PORT}`);
+  });
+}
+
+createServer();

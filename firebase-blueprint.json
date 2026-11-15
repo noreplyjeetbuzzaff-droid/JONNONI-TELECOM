@@ -1,0 +1,263 @@
+{
+  "entities": {
+    "FlashFile": {
+      "title": "FlashFile",
+      "description": "Metadata for a mobile flash tool, firmware package, driver, or servicing file stored in Google Drive.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 160,
+          "description": "Descriptive title of the flash file or tool."
+        },
+        "brand": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50,
+          "description": "Mobile manufacturer or brand name."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Device model name or model code."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "Flash Tools",
+            "Stock Firmware",
+            "USB Drivers",
+            "FRP & Unlock",
+            "QCN & Security",
+            "Repair Guides"
+          ],
+          "description": "File category."
+        },
+        "chipset": {
+          "type": "string",
+          "enum": [
+            "MediaTek (MTK)",
+            "Qualcomm Snapdragon",
+            "Unisoc (SPD)",
+            "Exynos",
+            "Kirin",
+            "Apple Silicon",
+            "Universal"
+          ],
+          "description": "Target processor chipset or platform."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Firmware build version, Android version, or tool release."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Original uploaded file name."
+        },
+        "fileSizeBytes": {
+          "type": "number",
+          "description": "File size in bytes."
+        },
+        "driveFileId": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 120,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Google Drive file ID."
+        },
+        "downloadUrl": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 400,
+          "description": "Direct Google Drive download URL."
+        },
+        "viewUrl": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 400,
+          "description": "Google Drive preview URL."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "Flashing instructions, compatibility notes, or archive password."
+        },
+        "price": {
+          "type": "number",
+          "description": "Price in BDT (0 means free download)."
+        },
+        "isPublicDrive": {
+          "type": "boolean",
+          "description": "Whether the file is publicly downloadable by visitors."
+        },
+        "uploadedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the admin who uploaded the file."
+        },
+        "uploadedByName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Display name of the uploader."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp."
+        }
+      },
+      "required": [
+        "title",
+        "brand",
+        "model",
+        "category",
+        "chipset",
+        "version",
+        "fileName",
+        "fileSizeBytes",
+        "driveFileId",
+        "downloadUrl",
+        "viewUrl",
+        "notes",
+        "isPublicDrive",
+        "uploadedByUid",
+        "uploadedByName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized admin user for Jonnoi Telecom & Servicing Center.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "role", "createdAt"]
+    },
+    "SiteSettings": {
+      "title": "SiteSettings",
+      "description": "Public site configuration managed by Admin (Shop Map toggle & coordinates, Header BG theme, AdSense IDs).",
+      "type": "object",
+      "properties": {
+        "shopMapEnabled": {
+          "type": "boolean",
+          "description": "Whether the shop Google Map is visible on the public page."
+        },
+        "shopName": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "shopAddress": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "shopLat": {
+          "type": "number"
+        },
+        "shopLng": {
+          "type": "number"
+        },
+        "shopPinSet": {
+          "type": "boolean"
+        },
+        "headerBgTheme": {
+          "type": "string",
+          "enum": ["navy", "cobalt", "emerald", "charcoal", "white"]
+        },
+        "adsenseEnabled": {
+          "type": "boolean"
+        },
+        "adsensePublisherId": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "adsenseSlotTop": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "adsenseSlotBottom": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        }
+      },
+      "required": [
+        "shopMapEnabled",
+        "shopName",
+        "shopAddress",
+        "shopLat",
+        "shopLng",
+        "shopPinSet",
+        "headerBgTheme",
+        "adsenseEnabled",
+        "adsensePublisherId",
+        "adsenseSlotTop",
+        "adsenseSlotBottom",
+        "updatedAt",
+        "updatedByUid"
+      ]
+    }
+  },
+  "firestore": {
+    "/flash_files/{fileId}": {
+      "schema": { "$ref": "#/entities/FlashFile" },
+      "description": "Catalog of mobile flash tools and firmware files stored on Google Drive."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized administrators permitted to upload and manage files."
+    },
+    "/site_settings/{settingId}": {
+      "schema": { "$ref": "#/entities/SiteSettings" },
+      "description": "Public site configuration document ('public') controlled by authorized admins."
+    }
+  }
+}
