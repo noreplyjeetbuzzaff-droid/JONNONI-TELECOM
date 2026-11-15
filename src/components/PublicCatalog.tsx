@@ -33,6 +33,8 @@ import { LoadingSpinner } from './LoadingSpinner';
 import { ShopMapSection } from './ShopMapSection';
 import { ServicingGuideSection } from './ServicingGuideSection';
 import { AdSenseUnit } from './AdSenseBanner';
+import youtubeBannerImg from '../assets/images/youtube_shop_banner_1794752535651.jpg';
+import benchImageImg from '../assets/images/servicing_chip_workbench_1794725615159.jpg';
 
 interface PublicCatalogProps {
   files: FlashFileRecord[];
@@ -42,10 +44,8 @@ interface PublicCatalogProps {
   onOpenAdmin: () => void;
 }
 
-const YOUTUBE_BANNER_SRC =
-  '/src/assets/images/youtube_shop_banner_1794752535651.jpg';
-const BENCH_IMAGE_SRC =
-  '/src/assets/images/servicing_chip_workbench_1794725615159.jpg';
+const YOUTUBE_BANNER_SRC = youtubeBannerImg;
+const BENCH_IMAGE_SRC = benchImageImg;
 
 export const PublicCatalog: React.FC<PublicCatalogProps> = ({
   files,
@@ -210,7 +210,6 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
               <img
                 src={YOUTUBE_BANNER_SRC}
                 alt="জননী টেলিকম এন্ড সার্ভিসিং সেন্টার ব্যানার"
-                referrerPolicy="no-referrer"
                 onError={() => setBannerImgError(true)}
                 className="absolute inset-0 h-full w-full object-cover object-right-top"
               />
@@ -715,7 +714,6 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                   <img
                     src={BENCH_IMAGE_SRC}
                     alt="মোবাইল হার্ডওয়্যার আইসি ও সার্ভিসিং ওয়ার্কবেঞ্চ"
-                    referrerPolicy="no-referrer"
                     onError={() => setBenchImgError(true)}
                     className="h-full w-full object-cover"
                   />

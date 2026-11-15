@@ -54,7 +54,12 @@ export async function checkIsAdmin(
   emailVerified: boolean
 ): Promise<boolean> {
   if (!emailVerified) return false;
-  if (email && email === BOOTSTRAPPED_ADMIN_EMAIL) return true;
+  if (
+    email &&
+    email.trim().toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()
+  ) {
+    return true;
+  }
   if (!ID_REGEX.test(uid)) return false;
 
   try {

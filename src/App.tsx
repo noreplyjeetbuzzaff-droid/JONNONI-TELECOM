@@ -127,8 +127,8 @@ export default function App() {
     return () => unsubscribeSettings();
   }, []);
 
-  const handleGoogleLogin = async () => {
-    const result = await googleSignIn();
+  const handleGoogleLogin = async (forceDriveConsent = false) => {
+    const result = await googleSignIn(forceDriveConsent);
     if (result) {
       setUser(result.user);
       setAccessToken(result.accessToken);
@@ -175,7 +175,7 @@ export default function App() {
       <Navbar
         activeView={activeView}
         onNavigateView={setActiveView}
-        isAdminSignedIn={Boolean(user && isAdmin && accessToken)}
+        isAdminSignedIn={Boolean(user && isAdmin)}
         headerBgTheme={siteSettings.headerBgTheme}
       />
 

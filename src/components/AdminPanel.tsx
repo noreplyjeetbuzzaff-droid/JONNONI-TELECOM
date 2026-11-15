@@ -78,7 +78,7 @@ interface AdminPanelProps {
   isAdmin: boolean;
   authChecking: boolean;
   siteSettings: SiteSettings;
-  onGoogleLogin: () => Promise<void>;
+  onGoogleLogin: (forceDriveConsent?: boolean) => Promise<void>;
   onLogout: () => Promise<void>;
 }
 
@@ -148,7 +148,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
   const [locatingGps, setLocatingGps] = useState(false);
 
-  const isBootstrapped = user?.email === BOOTSTRAPPED_ADMIN_EMAIL;
+  const isBootstrapped =
+    user?.email?.trim().toLowerCase() ===
+    BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase();
 
   useEffect(() => {
     setDraftSettings(siteSettings);
@@ -243,11 +245,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   }, [adminFiles, adminSearch]);
 
-  const handleLoginClick = async () => {
+  const handleLoginClick = async (forceDriveConsent = false) => {
     setLoggingIn(true);
     setLoginError(null);
     try {
-      await onGoogleLogin();
+      await onGoogleLogin(forceDriveConsent);
     } catch (err) {
       setLoginError(
         err instanceof Error
@@ -500,8 +502,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   }
 
-  // Not signed in or Drive OAuth token missing -> Show Admin Login Screen
-  if (!user || !accessToken) {
+  // Not signed in -> Show Admin Login Screen
+  if (!user) {
+    const inIframe =
+      typeof window !== 'undefined' && window.self !== window.top;
+
     return (
       <section className="mx-auto max-w-lg px-4 py-12 sm:px-6">
         <div className="card-3d rounded-xl border border-slate-200 bg-white p-7 sm:p-8">
@@ -519,42 +524,44 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             ভিজিটর ট্র্যাকিং, শপ গুগল ম্যাপ ও হেডার সেটিংস পরিচালনা করুন।
           </p>
 
-          {user && !accessToken && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              আপনার সেশন ({user.email}) থেকে ফাইল আপলোডের জন্য পুনরায় গুগল
-              ড্রাইভ সংযোগ প্রয়োজন। নিচের বাটনে ক্লিক করে সংযোগ করুন।
-            </div>
-          )}
-
           {loginError && (
-            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
               {loginError}
             </div>
           )}
 
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <GoogleSignInButton
-              onClick={handleLoginClick}
+              onClick={() => handleLoginClick(false)}
               disabled={loggingIn}
               label={
                 loggingIn
-                  ? 'গুগল ড্রাইভ সংযুক্ত হচ্ছে...'
+                  ? 'গুগল অ্যাকাউন্ট সংযুক্ত হচ্ছে...'
                   : 'Sign in with Google'
               }
             />
             {loggingIn && (
               <LoadingSpinner size="sm" className="text-sky-600" />
             )}
-            {user && (
-              <button
-                type="button"
-                onClick={onLogout}
-                className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                সাইন আউট
-              </button>
-            )}
           </div>
+
+          {(inIframe || loginError) && (
+            <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+              <p className="leading-relaxed">
+                প্রিভিউ বা মোবাইলে লগইন পপআপ খুলতে সমস্যা হলে নিচের বাটনে
+                ক্লিক করে অ্যাপটি নতুন ব্রাউজার ট্যাবে খুলে লগইন করুন:
+              </p>
+              <a
+                href={typeof window !== 'undefined' ? window.location.href : '/'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 font-semibold text-white hover:bg-sky-700"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span>নতুন ট্যাবে খুলে লগইন করুন</span>
+              </a>
+            </div>
+          )}
 
           <div className="mt-6 border-t border-slate-200 pt-4 text-xs text-slate-500">
             আপলোডকৃত সকল ফাইল আপনার গুগল ড্রাইভের{' '}
@@ -764,6 +771,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 যেকোনো মোবাইল ফ্ল্যাশ টুলস, স্টক রম, ড্রাইভার বা আনলক ফাইল সরাসরি
                 গুগল ড্রাইভে আপলোড করুন।
               </p>
+
+              {!accessToken && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900 space-y-2.5">
+                  <p className="leading-relaxed">
+                    গুগল ড্রাইভে নতুন ফাইল আপলোড করতে ড্রাইভ অনুমতি সচল করুন।
+                  </p>
+                  {loginError && (
+                    <p className="text-red-700 font-medium">{loginError}</p>
+                  )}
+                  <GoogleSignInButton
+                    onClick={() => handleLoginClick(true)}
+                    disabled={loggingIn}
+                    label={
+                      loggingIn
+                        ? 'গুগল ড্রাইভ সংযুক্ত হচ্ছে...'
+                        : 'গুগল ড্রাইভ সংযুক্ত করুন'
+                    }
+                  />
+                </div>
+              )}
 
               <form onSubmit={handleUploadSubmit} className="mt-5 space-y-4">
                 {uploadError && (
