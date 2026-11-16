@@ -89,8 +89,8 @@ let analyticsCache: StoredAnalytics | null = null;
 const activeSessions = new Map<string, ActiveVisitorSession>();
 const analyticsSseClients = new Set<express.Response>();
 let adsConfigCache: StoredAdsConfig = {
-  adsensePublisherId: '',
-  adsenseEnabled: false,
+  adsensePublisherId: 'ca-pub-4269885349192047',
+  adsenseEnabled: true,
 };
 let firebaseApiKeyCache: string | null = null;
 let firebaseProjectIdCache: string | null = null;
@@ -165,10 +165,14 @@ async function loadAdsConfig(): Promise<StoredAdsConfig> {
     const parsed = JSON.parse(raw) as Partial<StoredAdsConfig>;
     adsConfigCache = {
       adsensePublisherId:
-        typeof parsed.adsensePublisherId === 'string'
-          ? parsed.adsensePublisherId
-          : '',
-      adsenseEnabled: Boolean(parsed.adsenseEnabled),
+        typeof parsed.adsensePublisherId === 'string' &&
+        parsed.adsensePublisherId.trim() !== ''
+          ? parsed.adsensePublisherId.trim()
+          : 'ca-pub-4269885349192047',
+      adsenseEnabled:
+        typeof parsed.adsenseEnabled === 'boolean'
+          ? parsed.adsenseEnabled
+          : true,
     };
   } catch {
     // keep default

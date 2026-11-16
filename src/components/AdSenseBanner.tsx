@@ -26,9 +26,12 @@ export const AdSenseScriptLoader: React.FC<AdSenseScriptLoaderProps> = ({
     }
     meta.content = cleanId;
 
-    // Load AdSense script once
+    // Load AdSense script once (skip if already embedded in index.html)
     const scriptId = 'google-adsense-script';
-    if (!document.getElementById(scriptId)) {
+    const existingScript = document.querySelector<HTMLScriptElement>(
+      'script[src*="pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"]'
+    );
+    if (!document.getElementById(scriptId) && !existingScript) {
       const script = document.createElement('script');
       script.id = scriptId;
       script.async = true;

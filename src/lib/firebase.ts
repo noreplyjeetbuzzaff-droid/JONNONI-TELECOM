@@ -1,9 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import {
+  browserLocalPersistence,
   getAuth,
   getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
+  setPersistence,
   signInWithPopup,
   signInWithRedirect,
   User,
@@ -15,17 +17,19 @@ const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch(() => {});
 
+// Primary Admin Auth provider (no sensitive Drive scope, avoids OAuth unverified-app blocks)
 const provider = new GoogleAuthProvider();
-provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.setCustomParameters({
   prompt: 'select_account',
 });
 
+// Separate provider used only when explicitly connecting Google Drive storage
 const driveConsentProvider = new GoogleAuthProvider();
 driveConsentProvider.addScope('https://www.googleapis.com/auth/drive.file');
 driveConsentProvider.setCustomParameters({
-  prompt: 'consent',
+  prompt: 'consent select_account',
 });
 
 let isSigningIn = false;
@@ -140,11 +144,18 @@ function formatAuthErrorMessage(err: unknown): string {
   if (code === 'auth/web-storage-unsupported') {
     return 'আপনার ব্রাউজারে কুকি বা স্টোরেজ ব্লক করা আছে। প্রাইভেট মোড বন্ধ করে বা কুকি চালু করে চেষ্টা করুন।';
   }
+  if (
+    code === 'auth/operation-not-allowed' ||
+    code === 'auth/unauthorized-continue-uri'
+  ) {
+    return 'Firebase Authentication-এ Google Sign-In অথবা এই ডোমেইন অনুমোদিত নয়। অনুগ্রহ করে Firebase Console যাচাই করুন।';
+  }
   return rawMessage || 'গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
 }
 
 export const initAuth = (
-  onAuthChange: (user: User | null, accessToken: string | null) => void
+  onAuthChange: (user: User | null, accessToken: string | null) => void,
+  onAuthError?: (message: string) => void
 ) => {
   // Recover any pending OAuth redirect credential if signInWithRedirect ran
   getRedirectResult(auth)
@@ -160,6 +171,9 @@ export const initAuth = (
     })
     .catch((err) => {
       console.error('Redirect auth check error:', err);
+      if (onAuthError) {
+        onAuthError(formatAuthErrorMessage(err));
+      }
     });
 
   return onAuthStateChanged(auth, (user: User | null) => {
@@ -213,6 +227,17 @@ export const googleSignIn = async (
     throw new Error(formatAuthErrorMessage(err));
   } finally {
     isSigningIn = false;
+  }
+};
+
+export const googleSignInRedirect = async (
+  forceConsent = false
+): Promise<void> => {
+  const activeProvider = forceConsent ? driveConsentProvider : provider;
+  try {
+    await signInWithRedirect(auth, activeProvider);
+  } catch (err: unknown) {
+    throw new Error(formatAuthErrorMessage(err));
   }
 };
 

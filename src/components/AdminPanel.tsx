@@ -83,8 +83,10 @@ interface AdminPanelProps {
   accessToken: string | null;
   isAdmin: boolean;
   authChecking: boolean;
+  authRedirectError?: string | null;
   siteSettings: SiteSettings;
   onGoogleLogin: (forceDriveConsent?: boolean) => Promise<void>;
+  onGoogleLoginRedirect?: (forceDriveConsent?: boolean) => Promise<void>;
   onLogout: () => Promise<void>;
 }
 
@@ -95,8 +97,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   accessToken,
   isAdmin,
   authChecking,
+  authRedirectError,
   siteSettings,
   onGoogleLogin,
+  onGoogleLoginRedirect,
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('files');
@@ -563,10 +567,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Not signed in -> Show Admin Login Screen
   if (!user) {
+    const activeLoginError = loginError || authRedirectError || null;
     const inIframe =
       typeof window !== 'undefined' && window.self !== window.top;
     const isUnauthorizedDomain = Boolean(
-      loginError?.includes('auth/unauthorized-domain')
+      activeLoginError?.includes('auth/unauthorized-domain')
     );
     const currentHostname =
       typeof window !== 'undefined' ? window.location.hostname : '';
@@ -580,6 +585,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setTimeout(() => setCopiedDomain(false), 2000);
       } catch {
         // Ignore clipboard errors if denied
+      }
+    };
+
+    const handleRedirectLoginClick = async () => {
+      if (!onGoogleLoginRedirect) return;
+      setLoggingIn(true);
+      setLoginError(null);
+      try {
+        await onGoogleLoginRedirect(false);
+      } catch (err) {
+        setLoginError(
+          err instanceof Error
+            ? err.message
+            : 'গুগল রিডাইরেক্ট সাইন-ইন ব্যর্থ হয়েছে।'
+        );
+        setLoggingIn(false);
       }
     };
 
@@ -600,9 +621,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             ভিজিটর ট্র্যাকিং, শপ গুগল ম্যাপ ও হেডার সেটিংস পরিচালনা করুন।
           </p>
 
-          {loginError && (
+          {activeLoginError && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
-              {loginError}
+              {activeLoginError}
             </div>
           )}
 
@@ -679,10 +700,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             )}
           </div>
 
-          {(inIframe || (loginError && !isUnauthorizedDomain)) && (
+          {!inIframe && onGoogleLoginRedirect && (
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={handleRedirectLoginClick}
+                disabled={loggingIn}
+                className="text-xs font-medium text-sky-700 hover:text-sky-800 underline underline-offset-4 cursor-pointer disabled:opacity-60"
+              >
+                পপআপ ব্লক হলে রিডাইরেক্ট মোডে লগইন করুন
+              </button>
+            </div>
+          )}
+
+          {(inIframe || (activeLoginError && !isUnauthorizedDomain)) && (
             <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
               <p className="leading-relaxed">
-                প্রিভিউ বা মোবাইলে লগইন পপআপ খুলতে সমস্যা হলে নিচের বাটনে
+                প্রিভিউ বা মোবাইলে লগইন পপআপ ব্লক হলে নিচের বাটনে
                 ক্লিক করে অ্যাপটি নতুন ব্রাউজার ট্যাবে খুলে লগইন করুন:
               </p>
               <a

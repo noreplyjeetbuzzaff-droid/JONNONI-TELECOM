@@ -3,6 +3,7 @@ import { User } from 'firebase/auth';
 import {
   getAccessToken,
   googleSignIn,
+  googleSignInRedirect,
   initAuth,
   logout,
 } from './lib/firebase';
@@ -31,6 +32,9 @@ export default function App() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecking, setAuthChecking] = useState(true);
+  const [authRedirectError, setAuthRedirectError] = useState<string | null>(
+    null
+  );
 
   const [publicFiles, setPublicFiles] = useState<FlashFileRecord[]>([]);
   const [publicLoading, setPublicLoading] = useState(true);
@@ -89,21 +93,27 @@ export default function App() {
 
   // Subscribe to Auth State
   useEffect(() => {
-    const unsubscribeAuth = initAuth(async (firebaseUser, token) => {
-      setUser(firebaseUser);
-      setAccessToken(token || getAccessToken());
-      if (firebaseUser) {
-        const adminStatus = await checkIsAdmin(
-          firebaseUser.uid,
-          firebaseUser.email,
-          firebaseUser.emailVerified
-        );
-        setIsAdmin(adminStatus);
-      } else {
-        setIsAdmin(false);
+    const unsubscribeAuth = initAuth(
+      async (firebaseUser, token) => {
+        setUser(firebaseUser);
+        setAccessToken(token || getAccessToken());
+        if (firebaseUser) {
+          setAuthRedirectError(null);
+          const adminStatus = await checkIsAdmin(
+            firebaseUser.uid,
+            firebaseUser.email,
+            firebaseUser.emailVerified
+          );
+          setIsAdmin(adminStatus);
+        } else {
+          setIsAdmin(false);
+        }
+        setAuthChecking(false);
+      },
+      (errMessage) => {
+        setAuthRedirectError(errMessage);
       }
-      setAuthChecking(false);
-    });
+    );
 
     return () => unsubscribeAuth();
   }, []);
@@ -135,6 +145,7 @@ export default function App() {
   }, []);
 
   const handleGoogleLogin = async (forceDriveConsent = false) => {
+    setAuthRedirectError(null);
     const result = await googleSignIn(forceDriveConsent);
     if (result) {
       setUser(result.user);
@@ -146,6 +157,11 @@ export default function App() {
       );
       setIsAdmin(adminStatus);
     }
+  };
+
+  const handleGoogleLoginRedirect = async (forceDriveConsent = false) => {
+    setAuthRedirectError(null);
+    await googleSignInRedirect(forceDriveConsent);
   };
 
   const handleLogout = async () => {
@@ -201,8 +217,10 @@ export default function App() {
             accessToken={accessToken}
             isAdmin={isAdmin}
             authChecking={authChecking}
+            authRedirectError={authRedirectError}
             siteSettings={siteSettings}
             onGoogleLogin={handleGoogleLogin}
+            onGoogleLoginRedirect={handleGoogleLoginRedirect}
             onLogout={handleLogout}
           />
         )}

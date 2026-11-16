@@ -67,8 +67,8 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   shopOpen24Hours: true,
   shopStatusNote: '',
   headerBgTheme: 'navy',
-  adsenseEnabled: false,
-  adsensePublisherId: '',
+  adsenseEnabled: true,
+  adsensePublisherId: 'ca-pub-4269885349192047',
   adsenseSlotTop: '',
   adsenseSlotBottom: '',
 };

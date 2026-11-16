@@ -59,11 +59,15 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
         ? raw.shopStatusNote.trim().slice(0, 140)
         : '',
     headerBgTheme: theme,
-    adsenseEnabled: Boolean(raw.adsenseEnabled),
+    adsenseEnabled:
+      typeof raw.adsenseEnabled === 'boolean'
+        ? raw.adsenseEnabled
+        : DEFAULT_SITE_SETTINGS.adsenseEnabled,
     adsensePublisherId:
-      typeof raw.adsensePublisherId === 'string'
+      typeof raw.adsensePublisherId === 'string' &&
+      raw.adsensePublisherId.trim() !== ''
         ? raw.adsensePublisherId.trim()
-        : '',
+        : DEFAULT_SITE_SETTINGS.adsensePublisherId,
     adsenseSlotTop:
       typeof raw.adsenseSlotTop === 'string' ? raw.adsenseSlotTop.trim() : '',
     adsenseSlotBottom:
