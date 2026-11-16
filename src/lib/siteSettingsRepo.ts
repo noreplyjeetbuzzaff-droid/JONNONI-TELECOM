@@ -50,6 +50,14 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
         ? lng
         : DEFAULT_SITE_SETTINGS.shopLng,
     shopPinSet: Boolean(raw.shopPinSet),
+    shopOpen24Hours:
+      typeof raw.shopOpen24Hours === 'boolean'
+        ? raw.shopOpen24Hours
+        : DEFAULT_SITE_SETTINGS.shopOpen24Hours,
+    shopStatusNote:
+      typeof raw.shopStatusNote === 'string'
+        ? raw.shopStatusNote.trim().slice(0, 140)
+        : '',
     headerBgTheme: theme,
     adsenseEnabled: Boolean(raw.adsenseEnabled),
     adsensePublisherId:
@@ -128,6 +136,8 @@ export async function saveSiteSettings(
     shopLat: Number(lat.toFixed(6)),
     shopLng: Number(lng.toFixed(6)),
     shopPinSet: Boolean(settings.shopPinSet),
+    shopOpen24Hours: Boolean(settings.shopOpen24Hours),
+    shopStatusNote: (settings.shopStatusNote || '').trim().slice(0, 140),
     headerBgTheme: VALID_THEMES.includes(settings.headerBgTheme)
       ? settings.headerBgTheme
       : 'navy',

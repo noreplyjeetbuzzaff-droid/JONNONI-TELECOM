@@ -48,6 +48,8 @@ export interface SiteSettings {
   shopLat: number;
   shopLng: number;
   shopPinSet: boolean;
+  shopOpen24Hours: boolean;
+  shopStatusNote: string;
   headerBgTheme: HeaderBgTheme;
   adsenseEnabled: boolean;
   adsensePublisherId: string;
@@ -62,12 +64,23 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   shopLat: 23.685,
   shopLng: 90.3563,
   shopPinSet: false,
+  shopOpen24Hours: true,
+  shopStatusNote: '',
   headerBgTheme: 'navy',
   adsenseEnabled: false,
   adsensePublisherId: '',
   adsenseSlotTop: '',
   adsenseSlotBottom: '',
 };
+
+export interface ActiveVisitorInfo {
+  id: string;
+  device: 'mobile' | 'desktop' | 'tablet';
+  browser: string;
+  os: string;
+  path: string;
+  lastActiveSecondsAgo: number;
+}
 
 export interface VisitorEventRecord {
   id: string;
@@ -90,6 +103,8 @@ export interface DailyVisitorPoint {
 }
 
 export interface VisitorSummary {
+  liveVisitorsCount: number;
+  activeVisitors: ActiveVisitorInfo[];
   totalVisits: number;
   todayVisits: number;
   uniqueVisitors: number;

@@ -32,6 +32,20 @@ let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
 export const BOOTSTRAPPED_ADMIN_EMAIL = 'noreply.jeetbuzzaff@gmail.com';
+export const BOOTSTRAPPED_ADMIN_EMAILS = [
+  'noreply.jeetbuzzaff@gmail.com',
+  'sflove087@gmail.com',
+] as const;
+
+export function isBootstrappedAdminEmail(
+  email: string | null | undefined
+): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  return BOOTSTRAPPED_ADMIN_EMAILS.some(
+    (adminEmail) => adminEmail.toLowerCase() === normalized
+  );
+}
 
 export enum OperationType {
   CREATE = 'create',

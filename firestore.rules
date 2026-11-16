@@ -27,7 +27,12 @@ service cloud.firestore {
     }
 
     function isBootstrappedAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'noreply.jeetbuzzaff@gmail.com';
+      return isVerifiedUser() && (
+        request.auth.token.email in [
+          'noreply.jeetbuzzaff@gmail.com',
+          'sflove087@gmail.com'
+        ]
+      );
     }
 
     function isAdmin() {
@@ -114,8 +119,9 @@ service cloud.firestore {
       ])
       && data.keys().hasOnly([
         'shopMapEnabled', 'shopName', 'shopAddress', 'shopLat', 'shopLng',
-        'shopPinSet', 'headerBgTheme', 'adsenseEnabled', 'adsensePublisherId',
-        'adsenseSlotTop', 'adsenseSlotBottom', 'updatedAt', 'updatedByUid'
+        'shopPinSet', 'shopOpen24Hours', 'shopStatusNote', 'headerBgTheme',
+        'adsenseEnabled', 'adsensePublisherId', 'adsenseSlotTop',
+        'adsenseSlotBottom', 'updatedAt', 'updatedByUid'
       ])
       && data.shopMapEnabled is bool
       && data.shopName is string && data.shopName.size() >= 2 && data.shopName.size() <= 120
@@ -123,6 +129,8 @@ service cloud.firestore {
       && data.shopLat is number && data.shopLat >= -90 && data.shopLat <= 90
       && data.shopLng is number && data.shopLng >= -180 && data.shopLng <= 180
       && data.shopPinSet is bool
+      && (!('shopOpen24Hours' in data) || data.shopOpen24Hours is bool)
+      && (!('shopStatusNote' in data) || (data.shopStatusNote is string && data.shopStatusNote.size() <= 140))
       && data.headerBgTheme is string && isValidHeaderTheme(data.headerBgTheme)
       && data.adsenseEnabled is bool
       && data.adsensePublisherId is string && data.adsensePublisherId.size() <= 40 && (data.adsensePublisherId == '' || data.adsensePublisherId.matches('^ca-pub-[0-9]{10,20}$'))

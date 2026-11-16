@@ -11,7 +11,10 @@ import {
   subscribePublicFlashFiles,
 } from './lib/flashFilesRepo';
 import { subscribeSiteSettings } from './lib/siteSettingsRepo';
-import { trackVisitorEvent } from './lib/analyticsClient';
+import {
+  startVisitorPresence,
+  trackVisitorEvent,
+} from './lib/analyticsClient';
 import { FlashFileRecord } from './types/flashFile';
 import { DEFAULT_SITE_SETTINGS, SiteSettings } from './types/siteSettings';
 import { Navbar } from './components/Navbar';
@@ -71,13 +74,17 @@ export default function App() {
     ogUrl.content = currentUrl;
   }, []);
 
-  // Track public pageview once per initial load
+  // Track public pageview once per initial load & keep real-time presence heartbeat
   useEffect(() => {
     trackVisitorEvent({
       type: 'pageview',
       path: window.location.pathname || '/',
       label: 'Jonnoi Telecom Home',
     });
+    const stopPresence = startVisitorPresence(
+      () => window.location.pathname || '/'
+    );
+    return () => stopPresence();
   }, []);
 
   // Subscribe to Auth State

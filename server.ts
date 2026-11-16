@@ -14,7 +14,20 @@ const DATA_DIR = path.resolve(__dirname, '.data');
 const ANALYTICS_FILE = path.join(DATA_DIR, 'visitor-analytics.json');
 const ADS_CONFIG_FILE = path.join(DATA_DIR, 'ads-config.json');
 const FIREBASE_CONFIG_FILE = path.resolve(__dirname, 'firebase-applet-config.json');
-const BOOTSTRAPPED_ADMIN_EMAIL = 'noreply.jeetbuzzaff@gmail.com';
+const BOOTSTRAPPED_ADMIN_EMAILS = [
+  'noreply.jeetbuzzaff@gmail.com',
+  'sflove087@gmail.com',
+];
+const ACTIVE_SESSION_TTL_MS = 45_000;
+
+interface ActiveVisitorSession {
+  id: string;
+  device: 'mobile' | 'desktop' | 'tablet';
+  browser: string;
+  os: string;
+  path: string;
+  lastSeenMs: number;
+}
 
 interface VisitorEvent {
   id: string;
@@ -73,6 +86,8 @@ function createEmptyAnalytics(): StoredAnalytics {
 }
 
 let analyticsCache: StoredAnalytics | null = null;
+const activeSessions = new Map<string, ActiveVisitorSession>();
+const analyticsSseClients = new Set<express.Response>();
 let adsConfigCache: StoredAdsConfig = {
   adsensePublisherId: '',
   adsenseEnabled: false,
@@ -309,7 +324,100 @@ async function recordEvent(params: {
 
   data.updatedAt = new Date().toISOString();
   await persistAnalytics(data);
+  broadcastAnalyticsSnapshot().catch(() => {});
 }
+
+function pruneExpiredSessions(): boolean {
+  const now = Date.now();
+  let removed = false;
+  for (const [key, session] of activeSessions.entries()) {
+    if (now - session.lastSeenMs > ACTIVE_SESSION_TTL_MS) {
+      activeSessions.delete(key);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+function buildVisitorSummaryPayload(data: StoredAnalytics) {
+  pruneExpiredSessions();
+  const now = Date.now();
+  const activeVisitors = Array.from(activeSessions.values())
+    .sort((a, b) => b.lastSeenMs - a.lastSeenMs)
+    .slice(0, 25)
+    .map((s) => ({
+      id: s.id,
+      device: s.device,
+      browser: s.browser,
+      os: s.os,
+      path: s.path,
+      lastActiveSecondsAgo: Math.max(0, Math.round((now - s.lastSeenMs) / 1000)),
+    }));
+
+  const todayKey = getTodayKey();
+  const todayBucket = data.dailyStats[todayKey] || {
+    visits: 0,
+    downloads: 0,
+    searches: 0,
+    uniqueHashes: [],
+  };
+
+  const dailyTrend = Object.keys(data.dailyStats)
+    .sort()
+    .slice(-7)
+    .map((date) => ({
+      date,
+      visits: data.dailyStats[date].visits,
+      uniqueVisitors: data.dailyStats[date].uniqueHashes.length,
+      downloads: data.dailyStats[date].downloads,
+      searches: data.dailyStats[date].searches,
+    }));
+
+  const topSearches = Object.entries(data.topSearches)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([term, count]) => ({ term, count }));
+
+  const topDownloads = Object.values(data.topDownloads)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  return {
+    liveVisitorsCount: activeSessions.size,
+    activeVisitors,
+    totalVisits: data.totalVisits,
+    todayVisits: todayBucket.visits,
+    uniqueVisitors: data.uniqueHashes.length,
+    todayUniqueVisitors: todayBucket.uniqueHashes.length,
+    totalDownloads: data.totalDownloads,
+    totalSearches: data.totalSearches,
+    deviceCounts: data.deviceCounts,
+    dailyTrend,
+    topSearches,
+    topDownloads,
+    recentEvents: data.recentEvents.slice(0, 25),
+    updatedAt: data.updatedAt,
+  };
+}
+
+async function broadcastAnalyticsSnapshot() {
+  if (analyticsSseClients.size === 0) return;
+  const data = await loadAnalytics();
+  const payload = `event: summary\ndata: ${JSON.stringify(buildVisitorSummaryPayload(data))}\n\n`;
+  for (const client of analyticsSseClients) {
+    try {
+      client.write(payload);
+    } catch {
+      analyticsSseClients.delete(client);
+    }
+  }
+}
+
+setInterval(() => {
+  if (pruneExpiredSessions()) {
+    broadcastAnalyticsSnapshot().catch(() => {});
+  }
+}, 15_000).unref();
 
 async function verifyAdminBearerToken(authHeader: string | undefined): Promise<{
   uid: string;
@@ -340,7 +448,9 @@ async function verifyAdminBearerToken(authHeader: string | undefined): Promise<{
     const user = lookupJson.users?.[0];
     if (!user || !user.emailVerified || !user.email) return null;
 
-    if (user.email === BOOTSTRAPPED_ADMIN_EMAIL) {
+    if (
+      BOOTSTRAPPED_ADMIN_EMAILS.includes(user.email.trim().toLowerCase())
+    ) {
       return { uid: user.localId, email: user.email };
     }
 
@@ -432,9 +542,27 @@ async function resolveDriveStreamResponse(driveFileId: string) {
   return response;
 }
 
+function resolveServerPort(): number {
+  const portArgIdx = process.argv.indexOf('--port');
+  if (portArgIdx !== -1 && process.argv[portArgIdx + 1]) {
+    const cliPort = Number(process.argv[portArgIdx + 1]);
+    if (Number.isFinite(cliPort) && cliPort > 0) return cliPort;
+  }
+  const envPort = Number(process.env.PORT);
+  const nginxPort = Number(process.env.NGINX_PORT);
+  if (Number.isFinite(envPort) && envPort > 0 && envPort !== nginxPort) {
+    return envPort;
+  }
+  const defaultAppPort = Number(process.env.DEFAULT_APP_PORT);
+  if (Number.isFinite(defaultAppPort) && defaultAppPort > 0) {
+    return defaultAppPort;
+  }
+  return 3000;
+}
+
 async function createServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = resolveServerPort();
   const isProd = process.env.NODE_ENV === 'production';
 
   await loadAnalytics();
@@ -560,6 +688,91 @@ async function createServer() {
     res.status(204).end();
   });
 
+  // Real-time Visitor Presence Heartbeat
+  app.post('/api/analytics/heartbeat', (req, res) => {
+    const visitorId =
+      typeof req.body?.visitorId === 'string' ? req.body.visitorId : undefined;
+    const currentPath =
+      typeof req.body?.path === 'string'
+        ? req.body.path.slice(0, 120)
+        : '/';
+    const ua = String(req.headers['user-agent'] || '');
+    const { device, browser, os } = parseUserAgent(ua);
+    const sessionKey = hashVisitorKey(req, visitorId);
+    const prev = activeSessions.get(sessionKey);
+    const shouldBroadcast = !prev || prev.path !== currentPath;
+
+    activeSessions.set(sessionKey, {
+      id: sessionKey.slice(0, 8),
+      device,
+      browser,
+      os,
+      path: currentPath,
+      lastSeenMs: Date.now(),
+    });
+
+    if (shouldBroadcast) {
+      broadcastAnalyticsSnapshot().catch(() => {});
+    }
+    res.status(204).end();
+  });
+
+  // Real-time Visitor Leave Signal
+  app.post('/api/analytics/leave', express.text({ limit: '4kb' }), (req, res) => {
+    let visitorId: string | undefined;
+    if (req.body && typeof req.body === 'object' && 'visitorId' in req.body) {
+      const val = (req.body as { visitorId?: unknown }).visitorId;
+      if (typeof val === 'string') visitorId = val;
+    } else if (typeof req.body === 'string') {
+      try {
+        const parsed = JSON.parse(req.body) as { visitorId?: unknown };
+        if (typeof parsed.visitorId === 'string') visitorId = parsed.visitorId;
+      } catch {
+        // ignore invalid body
+      }
+    }
+    const sessionKey = hashVisitorKey(req, visitorId);
+    if (activeSessions.delete(sessionKey)) {
+      broadcastAnalyticsSnapshot().catch(() => {});
+    }
+    res.status(204).end();
+  });
+
+  // Admin: Real-Time SSE Visitor Analytics Stream
+  app.get('/api/analytics/stream', async (req, res) => {
+    const admin = await verifyAdminBearerToken(req.headers.authorization);
+    if (!admin) {
+      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+
+    analyticsSseClients.add(res);
+    const data = await loadAnalytics();
+    res.write(
+      `event: summary\ndata: ${JSON.stringify(buildVisitorSummaryPayload(data))}\n\n`
+    );
+
+    const keepAliveTimer = setInterval(() => {
+      try {
+        res.write(': keepalive\n\n');
+      } catch {
+        clearInterval(keepAliveTimer);
+        analyticsSseClients.delete(res);
+      }
+    }, 20_000);
+
+    req.on('close', () => {
+      clearInterval(keepAliveTimer);
+      analyticsSseClients.delete(res);
+    });
+  });
+
   // Admin: Visitor Analytics Summary
   app.get('/api/analytics/summary', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
@@ -569,48 +782,7 @@ async function createServer() {
     }
 
     const data = await loadAnalytics();
-    const todayKey = getTodayKey();
-    const todayBucket = data.dailyStats[todayKey] || {
-      visits: 0,
-      downloads: 0,
-      searches: 0,
-      uniqueHashes: [],
-    };
-
-    const dailyTrend = Object.keys(data.dailyStats)
-      .sort()
-      .slice(-7)
-      .map((date) => ({
-        date,
-        visits: data.dailyStats[date].visits,
-        uniqueVisitors: data.dailyStats[date].uniqueHashes.length,
-        downloads: data.dailyStats[date].downloads,
-        searches: data.dailyStats[date].searches,
-      }));
-
-    const topSearches = Object.entries(data.topSearches)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([term, count]) => ({ term, count }));
-
-    const topDownloads = Object.values(data.topDownloads)
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-
-    res.json({
-      totalVisits: data.totalVisits,
-      todayVisits: todayBucket.visits,
-      uniqueVisitors: data.uniqueHashes.length,
-      todayUniqueVisitors: todayBucket.uniqueHashes.length,
-      totalDownloads: data.totalDownloads,
-      totalSearches: data.totalSearches,
-      deviceCounts: data.deviceCounts,
-      dailyTrend,
-      topSearches,
-      topDownloads,
-      recentEvents: data.recentEvents.slice(0, 25),
-      updatedAt: data.updatedAt,
-    });
+    res.json(buildVisitorSummaryPayload(data));
   });
 
   // Admin: Reset Visitor Analytics
@@ -622,6 +794,7 @@ async function createServer() {
     }
     const fresh = createEmptyAnalytics();
     await persistAnalytics(fresh);
+    broadcastAnalyticsSnapshot().catch(() => {});
     res.json({ ok: true });
   });
 
@@ -712,8 +885,13 @@ async function createServer() {
 
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');
+    const disableHmr = process.env.DISABLE_HMR === 'true';
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: disableHmr ? false : undefined,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

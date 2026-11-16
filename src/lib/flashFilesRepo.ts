@@ -12,9 +12,9 @@ import {
   Unsubscribe,
 } from 'firebase/firestore';
 import {
-  BOOTSTRAPPED_ADMIN_EMAIL,
   db,
   handleFirestoreError,
+  isBootstrappedAdminEmail,
   OperationType,
 } from './firebase';
 import {
@@ -54,10 +54,7 @@ export async function checkIsAdmin(
   emailVerified: boolean
 ): Promise<boolean> {
   if (!emailVerified) return false;
-  if (
-    email &&
-    email.trim().toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()
-  ) {
+  if (isBootstrappedAdminEmail(email)) {
     return true;
   }
   if (!ID_REGEX.test(uid)) return false;

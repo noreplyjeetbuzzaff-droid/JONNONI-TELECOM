@@ -199,6 +199,15 @@
         "shopPinSet": {
           "type": "boolean"
         },
+        "shopOpen24Hours": {
+          "type": "boolean",
+          "description": "Whether the shop is currently open 24 hours (true) or closed / off-hours (false)."
+        },
+        "shopStatusNote": {
+          "type": "string",
+          "maxLength": 140,
+          "description": "Optional custom shop open/close status notice."
+        },
         "headerBgTheme": {
           "type": "string",
           "enum": ["navy", "cobalt", "emerald", "charcoal", "white"]

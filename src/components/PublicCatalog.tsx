@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  Clock,
   Cpu,
   Download,
   FileCode2,
@@ -225,9 +226,31 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
             <div className="relative z-10 flex h-full min-h-[195px] sm:min-h-[230px] lg:min-h-[265px] flex-col justify-center px-4 py-6 sm:px-8 lg:px-10">
               <div className="max-w-[66%] sm:max-w-[60%]">
-                <p className="text-[11px] font-medium tracking-wide text-sky-300 sm:text-xs">
-                  জননী টেলিকম এন্ড সার্ভিসিং সেন্টার
-                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-[11px] font-medium tracking-wide text-sky-300 sm:text-xs">
+                    জননী টেলিকম এন্ড সার্ভিসিং সেন্টার
+                  </p>
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-semibold sm:text-[11px] ${
+                      siteSettings.shopOpen24Hours
+                        ? 'border-emerald-400/40 bg-emerald-500/20 text-emerald-200'
+                        : 'border-rose-400/40 bg-rose-500/20 text-rose-200'
+                    }`}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        siteSettings.shopOpen24Hours
+                          ? 'bg-emerald-400 animate-pulse'
+                          : 'bg-rose-400'
+                      }`}
+                    />
+                    <span>
+                      {siteSettings.shopOpen24Hours
+                        ? '২৪ ঘণ্টা খোলা'
+                        : 'এখন দোকান বন্ধ'}
+                    </span>
+                  </span>
+                </div>
                 <h1
                   className="mt-1.5 font-display text-xl font-bold leading-snug tracking-tight text-white sm:text-3xl lg:text-4xl"
                   style={{ textWrap: 'balance' }}
@@ -779,9 +802,28 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
                   <div>
                     <p className="text-xs font-medium text-slate-500">
-                      আমাদের সার্ভিসিং সেবাসমূহ
+                      দোকানের সময়সূচী ও সার্ভিসিং
                     </p>
-                    <ul className="mt-1 space-y-1 text-xs text-slate-700">
+                    <div
+                      className={`mt-1.5 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold ${
+                        siteSettings.shopOpen24Hours
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          : 'border-rose-200 bg-rose-50 text-rose-800'
+                      }`}
+                    >
+                      <Clock className="h-3.5 w-3.5 shrink-0" />
+                      <span>
+                        {siteSettings.shopOpen24Hours
+                          ? '২৪ ঘণ্টা খোলা · অনলাইন ও সার্ভিসিং চালু'
+                          : 'এখন দোকান বন্ধ (২৪ ঘণ্টা ওয়েব ডাউনলোড চালু)'}
+                      </span>
+                    </div>
+                    {siteSettings.shopStatusNote && (
+                      <p className="mt-1.5 text-xs font-medium text-slate-700">
+                        {siteSettings.shopStatusNote}
+                      </p>
+                    )}
+                    <ul className="mt-2 space-y-1 text-xs text-slate-700">
                       <li>ফার্মওয়্যার ফ্ল্যাশিং, আনব্রিক ও IMEI/বেসব্যান্ড সমাধান</li>
                       <li>FRP, MDM এবং কান্ট্রি নেটওয়ার্ক আনলকিং</li>
                       <li>হার্ডওয়্যার আইসি, চার্জিং ও ডিসপ্লে সার্ভিসিং</li>

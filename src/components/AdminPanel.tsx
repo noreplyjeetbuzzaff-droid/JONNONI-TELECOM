@@ -3,8 +3,11 @@ import { User } from 'firebase/auth';
 import {
   Activity,
   BarChart3,
+  Check,
   CheckCircle2,
+  Clock,
   Compass,
+  Copy,
   ExternalLink,
   FileUp,
   FolderOpen,
@@ -16,6 +19,7 @@ import {
   Monitor,
   Palette,
   Pencil,
+  Radio,
   RefreshCw,
   Save,
   Search,
@@ -26,6 +30,7 @@ import {
   Upload,
   Users,
 } from 'lucide-react';
+import firebaseConfig from '../../firebase-applet-config.json';
 import {
   CATEGORY_LABELS_BN,
   CHIPSET_LABELS_BN,
@@ -56,6 +61,7 @@ import { saveSiteSettings } from '../lib/siteSettingsRepo';
 import {
   fetchVisitorSummary,
   resetVisitorStats,
+  subscribeVisitorStream,
 } from '../lib/analyticsClient';
 import {
   deleteDriveFile,
@@ -65,7 +71,7 @@ import {
   setDrivePublicPermission,
   uploadFileToDrive,
 } from '../lib/googleDrive';
-import { BOOTSTRAPPED_ADMIN_EMAIL } from '../lib/firebase';
+import { isBootstrappedAdminEmail } from '../lib/firebase';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EditFileModal } from './EditFileModal';
@@ -97,6 +103,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   const [driveInfo, setDriveInfo] = useState<DriveStorageInfo | null>(null);
   const [driveError, setDriveError] = useState<string | null>(null);
@@ -137,20 +144,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   );
   const [visitorsLoading, setVisitorsLoading] = useState(false);
   const [visitorsError, setVisitorsError] = useState<string | null>(null);
+  const [streamConnected, setStreamConnected] = useState(false);
   const [confirmResetVisitors, setConfirmResetVisitors] = useState(false);
   const [resettingVisitors, setResettingVisitors] = useState(false);
 
-  // Site Settings (Map On/Off, Header BG, AdSense) Draft State
+  // Site Settings (24h Open/Off, Map On/Off, Header BG, AdSense) Draft State
   const [draftSettings, setDraftSettings] =
     useState<SiteSettings>(siteSettings);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [togglingShop24h, setTogglingShop24h] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
   const [locatingGps, setLocatingGps] = useState(false);
 
-  const isBootstrapped =
-    user?.email?.trim().toLowerCase() ===
-    BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase();
+  const isBootstrapped = isBootstrappedAdminEmail(user?.email);
 
   useEffect(() => {
     setDraftSettings(siteSettings);
@@ -226,11 +233,63 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   useEffect(() => {
-    if (activeTab === 'visitors' && user && isAdmin) {
-      loadVisitorAnalytics();
+    if (activeTab !== 'visitors' || !user || !isAdmin) {
+      setStreamConnected(false);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    setVisitorsLoading(true);
+    setVisitorsError(null);
+    const unsubscribeStream = subscribeVisitorStream(
+      () => user.getIdToken(),
+      (summary) => {
+        setVisitorSummary(summary);
+        setVisitorsLoading(false);
+        setVisitorsError(null);
+      },
+      (connected) => {
+        setStreamConnected(connected);
+      },
+      (err) => {
+        setVisitorsLoading(false);
+        setVisitorsError(err.message);
+      }
+    );
+
+    return () => {
+      unsubscribeStream();
+    };
   }, [activeTab, user, isAdmin]);
+
+  const handleQuickToggleShop24Hours = async () => {
+    if (!user || togglingShop24h) return;
+    setTogglingShop24h(true);
+    setSettingsError(null);
+    setSettingsSuccess(null);
+    try {
+      const nextOpen = !siteSettings.shopOpen24Hours;
+      const nextSettings: SiteSettings = {
+        ...siteSettings,
+        shopOpen24Hours: nextOpen,
+      };
+      const idToken = await user.getIdToken();
+      await saveSiteSettings(user.uid, nextSettings, idToken);
+      setDraftSettings((prev) => ({ ...prev, shopOpen24Hours: nextOpen }));
+      setSettingsSuccess(
+        nextOpen
+          ? 'দোকান এখন "২৪ ঘণ্টা খোলা (ON)" হিসেবে লাইভ হয়েছে।'
+          : 'দোকান এখন "বন্ধ (OFF)" হিসেবে আপডেট করা হয়েছে।'
+      );
+    } catch (err) {
+      setSettingsError(
+        err instanceof Error
+          ? err.message
+          : 'শপ স্ট্যাটাস পরিবর্তন করা যায়নি।'
+      );
+    } finally {
+      setTogglingShop24h(false);
+    }
+  };
 
   const filteredAdminFiles = useMemo(() => {
     const q = adminSearch.trim().toLowerCase();
@@ -506,6 +565,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   if (!user) {
     const inIframe =
       typeof window !== 'undefined' && window.self !== window.top;
+    const isUnauthorizedDomain = Boolean(
+      loginError?.includes('auth/unauthorized-domain')
+    );
+    const currentHostname =
+      typeof window !== 'undefined' ? window.location.hostname : '';
+    const firebaseAuthSettingsUrl = `https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`;
+
+    const handleCopyDomain = async () => {
+      if (!currentHostname) return;
+      try {
+        await navigator.clipboard.writeText(currentHostname);
+        setCopiedDomain(true);
+        setTimeout(() => setCopiedDomain(false), 2000);
+      } catch {
+        // Ignore clipboard errors if denied
+      }
+    };
 
     return (
       <section className="mx-auto max-w-lg px-4 py-12 sm:px-6">
@@ -530,6 +606,64 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             </div>
           )}
 
+          {isUnauthorizedDomain && currentHostname && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-950">
+              <p className="font-semibold text-amber-900">
+                কাস্টম ডোমেইনে লগইন চালু করার নিয়ম:
+              </p>
+              <ol className="mt-1.5 list-decimal space-y-1 pl-4 leading-relaxed text-amber-900">
+                <li>
+                  নিচের{' '}
+                  <span className="font-semibold">
+                    Firebase Console Authorized Domains
+                  </span>{' '}
+                  বাটনে ক্লিক করুন।
+                </li>
+                <li>
+                  <span className="font-semibold">
+                    Authentication → Settings → Authorized domains
+                  </span>{' '}
+                  অংশে <span className="font-semibold">Add domain</span> চাপুন।
+                </li>
+                <li>
+                  নিচের ডোমেইন নামটি বসিয়ে সেভ করুন এবং পেজ রিলোড করে পুনরায়
+                  লগইন করুন:
+                </li>
+              </ol>
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <code className="rounded border border-amber-300 bg-white px-2.5 py-1 font-mono text-[11px] font-semibold text-slate-900">
+                  {currentHostname}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopyDomain}
+                  className="inline-flex items-center gap-1 rounded border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-900 hover:bg-amber-100 cursor-pointer"
+                >
+                  {copiedDomain ? (
+                    <>
+                      <Check className="h-3 w-3 text-emerald-600" />
+                      <span>কপি হয়েছে</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      <span>ডোমেইন কপি করুন</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <a
+                href={firebaseAuthSettingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white hover:bg-amber-800"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span>Firebase Console Authorized Domains খুলুন</span>
+              </a>
+            </div>
+          )}
+
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <GoogleSignInButton
               onClick={() => handleLoginClick(false)}
@@ -545,7 +679,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             )}
           </div>
 
-          {(inIframe || loginError) && (
+          {(inIframe || (loginError && !isUnauthorizedDomain)) && (
             <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
               <p className="leading-relaxed">
                 প্রিভিউ বা মোবাইলে লগইন পপআপ খুলতে সমস্যা হলে নিচের বাটনে
@@ -633,6 +767,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={handleQuickToggleShop24Hours}
+            disabled={togglingShop24h}
+            title="এক ক্লিকে শপ ২৪ ঘণ্টা খোলা বা বন্ধ করুন"
+            className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 ${
+              siteSettings.shopOpen24Hours
+                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                : 'border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
+            }`}
+          >
+            <Clock className="h-3.5 w-3.5" />
+            <span>
+              {togglingShop24h
+                ? 'আপডেট হচ্ছে...'
+                : siteSettings.shopOpen24Hours
+                  ? 'শপ: ২৪ ঘণ্টা খোলা (ON)'
+                  : 'শপ: বন্ধ (OFF)'}
+            </span>
+          </button>
+
           <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700">
             <span className="text-slate-500">সাইন ইন: </span>
             <span className="font-mono font-medium text-slate-900">
@@ -683,7 +838,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <BarChart3 className="h-4 w-4" />
-          <span>ভিজিটর ট্র্যাকিং</span>
+          <span>রিয়েল-টাইম ভিজিটর</span>
         </button>
 
         <button
@@ -698,7 +853,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }`}
         >
           <Settings className="h-4 w-4" />
-          <span>শপ ম্যাপ, হেডার ও AdSense / SEO</span>
+          <span>শপ ২৪ ঘণ্টা, ম্যাপ ও হেডার</span>
         </button>
       </div>
 
@@ -1183,17 +1338,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* TAB 2: VISITOR TRACKING DASHBOARD */}
+      {/* TAB 2: REAL-TIME VISITOR TRACKING DASHBOARD */}
       {activeTab === 'visitors' && (
         <div className="mt-6 space-y-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-display text-lg font-bold text-slate-900">
-                রিয়েল-টাইম ভিজিটর ট্র্যাকিং ও বিশ্লেষণ
-              </h2>
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h2 className="font-display text-lg font-bold text-slate-900">
+                  রিয়েল-টাইম ভিজিটর ট্র্যাকিং ও বিশ্লেষণ
+                </h2>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+                    streamConnected
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                      : 'border-amber-200 bg-amber-50 text-amber-700'
+                  }`}
+                >
+                  <Radio
+                    className={`h-3 w-3 ${
+                      streamConnected ? 'animate-pulse text-emerald-600' : ''
+                    }`}
+                  />
+                  <span>
+                    {streamConnected ? 'লাইভ স্ট্রিম চালু' : 'সংযুক্ত হচ্ছে...'}
+                  </span>
+                </span>
+              </div>
               <p className="text-xs text-slate-500">
-                সাইটের মোট ভিজিট, আজকের ভিজিটর, ডিভাইসের ধরন, সার্চ ও ডাউনলোড
-                কার্যক্রম পর্যবেক্ষণ করুন।
+                সাইটে বর্তমানে থাকা লাইভ ভিজিটর, মোট ভিজিট, আজকের ভিজিটর,
+                ডিভাইসের ধরন, সার্চ ও ডাউনলোড রিয়েল-টাইমে পর্যবেক্ষণ করুন।
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -1231,15 +1404,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white p-14">
               <LoadingSpinner
                 size="md"
-                label="ভিজিটর পরিসংখ্যান লোড হচ্ছে..."
+                label="রিয়েল-টাইম ভিজিটর ডাটা লোড হচ্ছে..."
                 className="text-sky-600 text-sm"
               />
             </div>
           ) : (
             visitorSummary && (
               <>
-                {/* 4 KPI Summary Cards */}
-                <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                {/* 5 KPI Summary Cards (including Real-Time Online Visitors) */}
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+                  <div className="card-3d rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>এখন অনলাইনে (Live)</span>
+                    </div>
+                    <p className="mt-2 font-mono text-2xl font-bold text-emerald-900 tabular-nums">
+                      {visitorSummary.liveVisitorsCount ?? 0}
+                    </p>
+                    <p className="mt-0.5 text-xs text-emerald-700">
+                      সক্রিয় লাইভ সেশন
+                    </p>
+                  </div>
+
                   <div className="card-3d rounded-xl border border-slate-200 bg-white p-4">
                     <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
                       <Activity className="h-4 w-4 text-sky-600" />
@@ -1279,7 +1465,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </p>
                   </div>
 
-                  <div className="card-3d rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="card-3d rounded-xl border border-slate-200 bg-white p-4 col-span-2 lg:col-span-1">
                     <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
                       <Upload className="h-4 w-4 text-amber-600 rotate-180" />
                       <span>মোট ফাইল ডাউনলোড</span>
@@ -1291,6 +1477,54 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       ওয়েবসাইট থেকে সরাসরি ডাউনলোড
                     </p>
                   </div>
+                </div>
+
+                {/* Live Active Visitors Feed */}
+                <div className="card-3d rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="flex items-center gap-2 font-display text-sm font-bold text-slate-900">
+                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                      <span>এখন ওয়েবসাইটে সক্রিয় ভিজিটর (Real-Time)</span>
+                    </h3>
+                    <span className="font-mono text-xs font-semibold text-emerald-700">
+                      {visitorSummary.liveVisitorsCount ?? 0} জন অনলাইন
+                    </span>
+                  </div>
+                  {!visitorSummary.activeVisitors ||
+                  visitorSummary.activeVisitors.length === 0 ? (
+                    <p className="mt-3 text-xs text-slate-500">
+                      এই মুহূর্তে কোনো সক্রিয় পাবলিক ভিজিটর সেশন নেই। কেউ
+                      সাইট খুললেই এখানে সাথে সাথে দেখা যাবে।
+                    </p>
+                  ) : (
+                    <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                      {visitorSummary.activeVisitors.map((v) => (
+                        <div
+                          key={v.id}
+                          className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 truncate">
+                              {v.device === 'mobile'
+                                ? 'মোবাইল'
+                                : v.device === 'tablet'
+                                  ? 'ট্যাবলেট'
+                                  : 'ডেস্কটপ'}{' '}
+                              · {v.os} / {v.browser}
+                            </p>
+                            <p className="font-mono text-[11px] text-slate-500 truncate">
+                              পেজ: {v.path} · ID #{v.id}
+                            </p>
+                          </div>
+                          <span className="ml-2 shrink-0 font-mono text-[11px] font-semibold text-emerald-700">
+                            {v.lastActiveSecondsAgo <= 5
+                              ? 'এইমাত্র'
+                              : `${v.lastActiveSecondsAgo}সে. আগে`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Device Breakdown & Top Searches / Top Downloads */}
@@ -1512,6 +1746,68 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <span>{settingsSuccess}</span>
             </div>
           )}
+
+          {/* Shop 24 Hours On/Off System Card */}
+          <div className="card-3d rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-5 w-5 text-sky-600" />
+                  <h2 className="font-display text-base font-bold text-slate-900">
+                    শপ ২৪ ঘণ্টা খোলা / বন্ধ সিস্টেম (24 Hours On / Off)
+                  </h2>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  দোকান ২৪ ঘণ্টা খোলা রাখবেন নাকি সাময়িকভাবে বন্ধ দেখাবেন তা
+                  এখান থেকে নির্ধারণ করুন। এটি হিরো ব্যানার ও যোগাযোগ সেকশনে
+                  তাৎক্ষণিকভাবে দেখাবে।
+                </p>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-checked={draftSettings.shopOpen24Hours}
+                onClick={() =>
+                  setDraftSettings((prev) => ({
+                    ...prev,
+                    shopOpen24Hours: !prev.shopOpen24Hours,
+                  }))
+                }
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-colors cursor-pointer shrink-0 ${
+                  draftSettings.shopOpen24Hours
+                    ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                    : 'bg-rose-600 text-white hover:bg-rose-700'
+                }`}
+              >
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  {draftSettings.shopOpen24Hours
+                    ? '২৪ ঘণ্টা খোলা (ON)'
+                    : 'দোকান বন্ধ (OFF)'}
+                </span>
+              </button>
+            </div>
+
+            <div className="mt-4">
+              <label className="block text-xs font-medium text-slate-700">
+                কাস্টম স্ট্যাটাস বার্তা / সময়সূচী নোট (ঐচ্ছিক)
+              </label>
+              <input
+                type="text"
+                placeholder="যেমন: ২৪ ঘণ্টা অনলাইন ফ্ল্যাশ ফাইল ও সার্ভিসিং সাপোর্ট চালু আছে"
+                value={draftSettings.shopStatusNote}
+                onChange={(e) =>
+                  setDraftSettings((prev) => ({
+                    ...prev,
+                    shopStatusNote: e.target.value,
+                  }))
+                }
+                maxLength={140}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-sky-600 focus:outline-none"
+              />
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             {/* Shop Google Maps On/Off & Location Pin Picker */}
