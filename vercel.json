@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/((?!api/|ads\\.txt|assets/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

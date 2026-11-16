@@ -153,17 +153,35 @@ function formatAuthErrorMessage(err: unknown): string {
   return rawMessage || 'গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
 }
 
+async function hasDriveFileScope(token: string): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`
+    );
+    if (!res.ok) return false;
+    const data = (await res.json()) as { scope?: string };
+    return Boolean(
+      data.scope && data.scope.includes('https://www.googleapis.com/auth/drive')
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const initAuth = (
   onAuthChange: (user: User | null, accessToken: string | null) => void,
   onAuthError?: (message: string) => void
 ) => {
   // Recover any pending OAuth redirect credential if signInWithRedirect ran
   getRedirectResult(auth)
-    .then((redirectResult) => {
+    .then(async (redirectResult) => {
       if (redirectResult) {
         const credential =
           GoogleAuthProvider.credentialFromResult(redirectResult);
-        if (credential?.accessToken) {
+        if (
+          credential?.accessToken &&
+          (await hasDriveFileScope(credential.accessToken))
+        ) {
           cachedAccessToken = credential.accessToken;
         }
         onAuthChange(redirectResult.user, cachedAccessToken);
@@ -201,7 +219,12 @@ export const googleSignIn = async (
     isSigningIn = true;
     const result = await signInWithPopup(auth, activeProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (credential?.accessToken) {
+    if (forceConsent && credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+    } else if (
+      credential?.accessToken &&
+      (await hasDriveFileScope(credential.accessToken))
+    ) {
       cachedAccessToken = credential.accessToken;
     }
     return { user: result.user, accessToken: cachedAccessToken };
@@ -243,6 +266,10 @@ export const googleSignInRedirect = async (
 
 export const getAccessToken = (): string | null => {
   return cachedAccessToken;
+};
+
+export const clearDriveAccessToken = (): void => {
+  cachedAccessToken = null;
 };
 
 export const logout = async () => {

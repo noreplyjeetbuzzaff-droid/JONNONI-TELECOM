@@ -519,12 +519,29 @@ function extractDriveConfirmUrl(html: string, driveFileId: string): string | nul
 }
 
 async function resolveDriveStreamResponse(driveFileId: string) {
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (compatible; JonnoiTelecomPortal/1.0)',
+  };
+
+  // First try direct usercontent endpoint which bypasses virus-scan interstitials
+  const directUserContentUrl = `https://drive.usercontent.google.com/download?id=${encodeURIComponent(driveFileId)}&export=download&confirm=t`;
+  const directRes = await fetch(directUserContentUrl, {
+    redirect: 'follow',
+    headers,
+  });
+  const directType = directRes.headers.get('content-type') || '';
+  if (directRes.ok && !directType.includes('text/html')) {
+    return directRes;
+  }
+  if (directRes.body) {
+    await directRes.body.cancel().catch(() => {});
+  }
+
+  // Fallback to drive.google.com/uc and parse HTML confirmation form if present
   const initialUrl = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(driveFileId)}`;
   let response = await fetch(initialUrl, {
     redirect: 'follow',
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; JonnoiTelecomPortal/1.0)',
-    },
+    headers,
   });
 
   const contentType = response.headers.get('content-type') || '';
@@ -536,7 +553,7 @@ async function resolveDriveStreamResponse(driveFileId: string) {
       response = await fetch(confirmUrl, {
         redirect: 'follow',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; JonnoiTelecomPortal/1.0)',
+          ...headers,
           ...(cookies ? { Cookie: cookies } : {}),
         },
       });

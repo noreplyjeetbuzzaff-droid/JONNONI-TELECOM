@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 
 interface AdSenseScriptLoaderProps {
   enabled: boolean;
@@ -59,19 +59,41 @@ export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
 }) => {
   const cleanPub = publisherId.trim();
   const cleanSlot = slotId.trim();
+  const insRef = useRef<HTMLModElement | null>(null);
 
   useEffect(() => {
-    if (!enabled || !cleanPub || !cleanSlot) return;
-    try {
-      const w = window as unknown as { adsbygoogle?: unknown[] };
-      w.adsbygoogle = w.adsbygoogle || [];
-      w.adsbygoogle.push({});
-    } catch {
-      // AdSense script not yet initialized or blocked by client extension
+    if (
+      !enabled ||
+      !/^ca-pub-\d{10,20}$/.test(cleanPub) ||
+      !/^\d{6,20}$/.test(cleanSlot)
+    ) {
+      return;
     }
+
+    const insEl = insRef.current;
+    if (!insEl || insEl.getAttribute('data-adsbygoogle-status')) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      try {
+        if (insEl.getAttribute('data-adsbygoogle-status')) return;
+        const w = window as unknown as { adsbygoogle?: unknown[] };
+        w.adsbygoogle = w.adsbygoogle || [];
+        w.adsbygoogle.push({});
+      } catch {
+        // AdSense script blocked by ad-blocker or domain still under review
+      }
+    }, 150);
+
+    return () => window.clearTimeout(timer);
   }, [enabled, cleanPub, cleanSlot]);
 
-  if (!enabled || !/^ca-pub-\d{10,20}$/.test(cleanPub) || !/^\d{6,20}$/.test(cleanSlot)) {
+  if (
+    !enabled ||
+    !/^ca-pub-\d{10,20}$/.test(cleanPub) ||
+    !/^\d{6,20}$/.test(cleanSlot)
+  ) {
     return null;
   }
 
@@ -82,8 +104,9 @@ export const AdSenseUnit: React.FC<AdSenseUnitProps> = ({
           বিজ্ঞাপন
         </p>
         <ins
-          className="adsbygoogle block"
-          style={{ display: 'block' }}
+          ref={insRef}
+          className="adsbygoogle block w-full"
+          style={{ display: 'block', minHeight: '90px' }}
           data-ad-client={cleanPub}
           data-ad-slot={cleanSlot}
           data-ad-format="auto"

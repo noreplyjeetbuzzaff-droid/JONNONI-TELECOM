@@ -87,7 +87,18 @@ interface AdminPanelProps {
   siteSettings: SiteSettings;
   onGoogleLogin: (forceDriveConsent?: boolean) => Promise<void>;
   onGoogleLoginRedirect?: (forceDriveConsent?: boolean) => Promise<void>;
+  onClearDriveToken?: () => void;
   onLogout: () => Promise<void>;
+}
+
+function isDriveScopeOrAuthError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err || '');
+  return (
+    msg.includes('403') ||
+    msg.includes('401') ||
+    msg.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') ||
+    msg.includes('insufficientPermissions')
+  );
 }
 
 type AdminTab = 'files' | 'visitors' | 'settings';
@@ -101,6 +112,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   siteSettings,
   onGoogleLogin,
   onGoogleLoginRedirect,
+  onClearDriveToken,
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('files');
@@ -182,6 +194,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       })
       .catch((err) => {
         if (!cancelled) {
+          if (isDriveScopeOrAuthError(err)) {
+            onClearDriveToken?.();
+            setDriveInfo(null);
+            setDriveError(
+              'গুগল ড্রাইভে ফাইল আপলোডের জন্য নিচের "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে ড্রাইভ অনুমতি দিন।'
+            );
+            return;
+          }
           setDriveError(
             err instanceof Error
               ? err.message
@@ -192,7 +212,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [user, isAdmin, accessToken]);
+  }, [user, isAdmin, accessToken, onClearDriveToken]);
 
   useEffect(() => {
     if (!user || !isAdmin) {
@@ -433,11 +453,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         .then(setDriveInfo)
         .catch(() => {});
     } catch (err) {
-      setUploadError(
-        err instanceof Error
-          ? err.message
-          : 'আপলোড ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
-      );
+      if (isDriveScopeOrAuthError(err)) {
+        onClearDriveToken?.();
+        setUploadError(
+          'গুগল ড্রাইভের অনুমতি বা সেশন শেষ হয়েছে। উপরের "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে ড্রাইভ অনুমতি দিন।'
+        );
+      } else {
+        setUploadError(
+          err instanceof Error
+            ? err.message
+            : 'আপলোড ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
+        );
+      }
     } finally {
       setUploading(false);
       setUploadStatus(null);
@@ -474,9 +501,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           .catch(() => {});
       }
     } catch (err) {
-      setFilesError(
-        err instanceof Error ? err.message : 'ফাইল মুছতে সমস্যা হয়েছে।'
-      );
+      if (isDriveScopeOrAuthError(err)) {
+        onClearDriveToken?.();
+        setFilesError(
+          'গুগল ড্রাইভ থেকে ফাইল মুছতে ড্রাইভ অনুমতি প্রয়োজন। "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে পুনরায় অনুমতি দিন।'
+        );
+      } else {
+        setFilesError(
+          err instanceof Error ? err.message : 'ফাইল মুছতে সমস্যা হয়েছে।'
+        );
+      }
       setDeletingFile(null);
     } finally {
       setDeletingBusy(false);
@@ -2147,11 +2181,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     AdSense অনুমোদন ও Google SEO স্ট্যাটাস:
                   </p>
                   <p className="text-emerald-700">
+                    ✓ AdSense স্ক্রিপ্ট ও ads.txt ({draftSettings.adsensePublisherId || 'ca-pub-4269885349192047'}) সক্রিয়
+                  </p>
+                  <p className="text-emerald-700">
                     ✓ Privacy Policy, Terms, Disclaimer, About Us ও Cookie বার
                     সক্রিয়
                   </p>
                   <p className="text-emerald-700">
                     ✓ Schema.org JSON-LD, OpenGraph ও Twitter Card যুক্ত
+                  </p>
+                  <p className="pt-1 text-[11px] leading-relaxed text-slate-600">
+                    বিজ্ঞাপন দেখানোর জন্য Google AdSense ড্যাশবোর্ডে আপনার
+                    সাইটটি <span className="font-semibold text-slate-800">&quot;Ready&quot;</span>{' '}
+                    অবস্থায় থাকতে হবে এবং <span className="font-semibold text-slate-800">Auto Ads</span>{' '}
+                    চালু অথবা উপরের Top/Bottom Ad Slot ID বসাতে হবে (ব্রাউজারে AdBlocker থাকলে বন্ধ রাখুন)।
                   </p>
                   <div className="flex flex-wrap gap-3 pt-1 font-mono text-[11px]">
                     <a

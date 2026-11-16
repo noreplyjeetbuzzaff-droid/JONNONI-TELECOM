@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
+  clearDriveAccessToken,
   getAccessToken,
   googleSignIn,
   googleSignInRedirect,
@@ -164,6 +165,11 @@ export default function App() {
     await googleSignInRedirect(forceDriveConsent);
   };
 
+  const handleClearDriveToken = useCallback(() => {
+    clearDriveAccessToken();
+    setAccessToken(null);
+  }, []);
+
   const handleLogout = async () => {
     await logout();
     setUser(null);
@@ -221,6 +227,7 @@ export default function App() {
             siteSettings={siteSettings}
             onGoogleLogin={handleGoogleLogin}
             onGoogleLoginRedirect={handleGoogleLoginRedirect}
+            onClearDriveToken={handleClearDriveToken}
             onLogout={handleLogout}
           />
         )}

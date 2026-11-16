@@ -253,6 +253,107 @@
         "updatedAt",
         "updatedByUid"
       ]
+    },
+    "VisitorEvent": {
+      "title": "VisitorEvent",
+      "description": "Anonymous visitor pageview, search, or download analytics event.",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["pageview", "search", "download"]
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "device": {
+          "type": "string",
+          "enum": ["mobile", "desktop", "tablet"]
+        },
+        "browser": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "referrer": {
+          "type": "string",
+          "maxLength": 180
+        },
+        "visitorHash": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "dayKey": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "type",
+        "path",
+        "label",
+        "device",
+        "browser",
+        "os",
+        "referrer",
+        "visitorHash",
+        "dayKey",
+        "createdAt"
+      ]
+    },
+    "VisitorPresence": {
+      "title": "VisitorPresence",
+      "description": "Real-time active visitor session heartbeat document.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "device": {
+          "type": "string",
+          "enum": ["mobile", "desktop", "tablet"]
+        },
+        "browser": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "lastSeenAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "device", "browser", "os", "path", "lastSeenAt"]
     }
   },
   "firestore": {
@@ -267,6 +368,14 @@
     "/site_settings/{settingId}": {
       "schema": { "$ref": "#/entities/SiteSettings" },
       "description": "Public site configuration document ('public') controlled by authorized admins."
+    },
+    "/visitor_events/{eventId}": {
+      "schema": { "$ref": "#/entities/VisitorEvent" },
+      "description": "Real-time visitor activity events readable only by admins."
+    },
+    "/visitor_presence/{sessionId}": {
+      "schema": { "$ref": "#/entities/VisitorPresence" },
+      "description": "Active visitor presence sessions readable only by admins."
     }
   }
 }

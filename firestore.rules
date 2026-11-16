@@ -140,6 +140,38 @@ service cloud.firestore {
       && data.updatedByUid is string && isValidId(data.updatedByUid);
     }
 
+    function isValidVisitorEvent(data) {
+      return data.keys().hasAll([
+        'type', 'path', 'label', 'device', 'browser', 'os',
+        'referrer', 'visitorHash', 'dayKey', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'type', 'path', 'label', 'device', 'browser', 'os',
+        'referrer', 'visitorHash', 'dayKey', 'createdAt'
+      ])
+      && data.type in ['pageview', 'search', 'download']
+      && data.path is string && data.path.size() >= 1 && data.path.size() <= 120
+      && data.label is string && data.label.size() <= 120
+      && data.device in ['mobile', 'desktop', 'tablet']
+      && data.browser is string && data.browser.size() >= 1 && data.browser.size() <= 40
+      && data.os is string && data.os.size() >= 1 && data.os.size() <= 40
+      && data.referrer is string && data.referrer.size() <= 180
+      && data.visitorHash is string && data.visitorHash.size() >= 4 && data.visitorHash.size() <= 64 && data.visitorHash.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.dayKey is string && data.dayKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      && data.createdAt is timestamp;
+    }
+
+    function isValidVisitorPresence(data) {
+      return data.keys().hasAll(['id', 'device', 'browser', 'os', 'path', 'lastSeenAt'])
+      && data.keys().hasOnly(['id', 'device', 'browser', 'os', 'path', 'lastSeenAt'])
+      && data.id is string && data.id.size() >= 4 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
+      && data.device in ['mobile', 'desktop', 'tablet']
+      && data.browser is string && data.browser.size() >= 1 && data.browser.size() <= 40
+      && data.os is string && data.os.size() >= 1 && data.os.size() <= 40
+      && data.path is string && data.path.size() >= 1 && data.path.size() <= 120
+      && data.lastSeenAt is timestamp;
+    }
+
     match /flash_files/{fileId} {
       allow get: if isValidId(fileId) && (resource.data.isPublicDrive == true || isAdmin());
       allow list: if resource.data.isPublicDrive == true || isBootstrappedAdmin() || (isVerifiedUser() && resource.data.uploadedByUid == request.auth.uid);
@@ -199,6 +231,30 @@ service cloud.firestore {
         && incoming().updatedAt == request.time;
 
       allow delete: if false;
+    }
+
+    match /visitor_events/{eventId} {
+      allow get: if isAdmin() && isValidId(eventId);
+      allow list: if isAdmin();
+
+      allow create: if isValidId(eventId)
+        && isValidVisitorEvent(incoming())
+        && incoming().createdAt == request.time;
+
+      allow update: if false;
+      allow delete: if isAdmin() && isValidId(eventId);
+    }
+
+    match /visitor_presence/{sessionId} {
+      allow get: if isAdmin() && isValidId(sessionId);
+      allow list: if isAdmin();
+
+      allow create, update: if isValidId(sessionId)
+        && isValidVisitorPresence(incoming())
+        && incoming().id == sessionId
+        && incoming().lastSeenAt == request.time;
+
+      allow delete: if isValidId(sessionId);
     }
   }
 }
