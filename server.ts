@@ -655,6 +655,13 @@ async function createServer() {
       );
   });
 
+  // Google Search Console: HTML file verification
+  app.get('/google4c5053fb0dbbad06.html', (_req, res) => {
+    res
+      .type('text/html')
+      .send('google-site-verification: google4c5053fb0dbbad06.html\n');
+  });
+
   // Admin: sync AdSense publisher ID for ads.txt
   app.post('/api/admin/ads-config', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
