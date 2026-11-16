@@ -79,6 +79,34 @@ export default function App() {
     ogUrl.content = currentUrl;
   }, []);
 
+  // Dynamic SEO Meta Description & Keywords Sync from Firestore
+  useEffect(() => {
+    const desc =
+      siteSettings.seoDescription?.trim() || DEFAULT_SITE_SETTINGS.seoDescription;
+    const kw =
+      siteSettings.seoKeywords?.trim() || DEFAULT_SITE_SETTINGS.seoKeywords;
+
+    const upsertMeta = (
+      selector: string,
+      attrKey: 'name' | 'property',
+      attrVal: string,
+      content: string
+    ) => {
+      let el = document.querySelector<HTMLMetaElement>(selector);
+      if (!el) {
+        el = document.createElement('meta');
+        el.setAttribute(attrKey, attrVal);
+        document.head.appendChild(el);
+      }
+      el.content = content;
+    };
+
+    upsertMeta('meta[name="description"]', 'name', 'description', desc);
+    upsertMeta('meta[name="keywords"]', 'name', 'keywords', kw);
+    upsertMeta('meta[property="og:description"]', 'property', 'og:description', desc);
+    upsertMeta('meta[name="twitter:description"]', 'name', 'twitter:description', desc);
+  }, [siteSettings.seoDescription, siteSettings.seoKeywords]);
+
   // Track public pageview once per initial load & keep real-time presence heartbeat
   useEffect(() => {
     trackVisitorEvent({

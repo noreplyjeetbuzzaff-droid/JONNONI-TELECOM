@@ -121,7 +121,8 @@ service cloud.firestore {
         'shopMapEnabled', 'shopName', 'shopAddress', 'shopLat', 'shopLng',
         'shopPinSet', 'shopOpen24Hours', 'shopStatusNote', 'headerBgTheme',
         'adsenseEnabled', 'adsensePublisherId', 'adsenseSlotTop',
-        'adsenseSlotBottom', 'updatedAt', 'updatedByUid'
+        'adsenseSlotBottom', 'seoDescription', 'seoKeywords',
+        'updatedAt', 'updatedByUid'
       ])
       && data.shopMapEnabled is bool
       && data.shopName is string && data.shopName.size() >= 2 && data.shopName.size() <= 120
@@ -136,6 +137,8 @@ service cloud.firestore {
       && data.adsensePublisherId is string && data.adsensePublisherId.size() <= 40 && (data.adsensePublisherId == '' || data.adsensePublisherId.matches('^ca-pub-[0-9]{10,20}$'))
       && data.adsenseSlotTop is string && data.adsenseSlotTop.size() <= 30 && (data.adsenseSlotTop == '' || data.adsenseSlotTop.matches('^[0-9]{6,20}$'))
       && data.adsenseSlotBottom is string && data.adsenseSlotBottom.size() <= 30 && (data.adsenseSlotBottom == '' || data.adsenseSlotBottom.matches('^[0-9]{6,20}$'))
+      && (!('seoDescription' in data) || (data.seoDescription is string && data.seoDescription.size() <= 320))
+      && (!('seoKeywords' in data) || (data.seoKeywords is string && data.seoKeywords.size() <= 500))
       && data.updatedAt is timestamp
       && data.updatedByUid is string && isValidId(data.updatedByUid);
     }

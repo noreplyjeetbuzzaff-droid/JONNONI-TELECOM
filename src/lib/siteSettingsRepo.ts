@@ -77,6 +77,14 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
       typeof raw.adsenseSlotBottom === 'string'
         ? raw.adsenseSlotBottom.trim()
         : '',
+    seoDescription:
+      typeof raw.seoDescription === 'string' && raw.seoDescription.trim() !== ''
+        ? raw.seoDescription.trim().slice(0, 320)
+        : DEFAULT_SITE_SETTINGS.seoDescription,
+    seoKeywords:
+      typeof raw.seoKeywords === 'string' && raw.seoKeywords.trim() !== ''
+        ? raw.seoKeywords.trim().slice(0, 500)
+        : DEFAULT_SITE_SETTINGS.seoKeywords,
   };
 }
 
@@ -152,6 +160,8 @@ export async function saveSiteSettings(
     adsensePublisherId: cleanPubId,
     adsenseSlotTop: cleanSlotTop,
     adsenseSlotBottom: cleanSlotBottom,
+    seoDescription: (settings.seoDescription || '').trim().slice(0, 320),
+    seoKeywords: (settings.seoKeywords || '').trim().slice(0, 500),
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
   };

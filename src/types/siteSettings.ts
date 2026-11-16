@@ -55,6 +55,8 @@ export interface SiteSettings {
   adsensePublisherId: string;
   adsenseSlotTop: string;
   adsenseSlotBottom: string;
+  seoDescription: string;
+  seoKeywords: string;
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
@@ -71,6 +73,10 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   adsensePublisherId: 'ca-pub-4269885349192047',
   adsenseSlotTop: '',
   adsenseSlotBottom: '',
+  seoDescription:
+    'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার (01738266366) — যেকোনো মডেলের মোবাইল ফ্ল্যাশ টুলস, স্টক ফার্মওয়্যার, ইউএসবি ড্রাইভার ও সরাসরি ডাউনলোড পোর্টাল।',
+  seoKeywords:
+    'জননী টেলিকম, Jonnoi Telecom, মোবাইল ফ্ল্যাশ ফাইল, Mobile Flash Tools, Stock Firmware Download, Samsung Flash File, Xiaomi Fastboot ROM, FRP Unlock File, USB Driver, Mobile Servicing Center Bangladesh',
 };
 
 export interface ActiveVisitorInfo {

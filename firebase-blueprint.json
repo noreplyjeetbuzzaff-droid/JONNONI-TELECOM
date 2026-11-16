@@ -227,6 +227,16 @@
           "type": "string",
           "maxLength": 30
         },
+        "seoDescription": {
+          "type": "string",
+          "maxLength": 320,
+          "description": "Dynamic meta description synced to <meta name='description'> and social cards."
+        },
+        "seoKeywords": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Comma-separated meta keywords synced to <meta name='keywords'>."
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time"

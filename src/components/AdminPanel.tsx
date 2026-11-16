@@ -72,6 +72,7 @@ import {
   uploadFileToDrive,
 } from '../lib/googleDrive';
 import { isBootstrappedAdminEmail } from '../lib/firebase';
+import { AdminSeoModule } from './AdminSeoModule';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EditFileModal } from './EditFileModal';
@@ -101,7 +102,7 @@ function isDriveScopeOrAuthError(err: unknown): boolean {
   );
 }
 
-type AdminTab = 'files' | 'visitors' | 'settings';
+type AdminTab = 'files' | 'visitors' | 'seo' | 'settings';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   user,
@@ -907,6 +908,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         >
           <BarChart3 className="h-4 w-4" />
           <span>রিয়েল-টাইম ভিজিটর</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'seo'}
+          onClick={() => setActiveTab('seo')}
+          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            activeTab === 'seo'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <Globe className="h-4 w-4" />
+          <span>SEO ও মেটা ট্যাগ</span>
         </button>
 
         <button
@@ -1800,7 +1816,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
       )}
 
-      {/* TAB 3: SHOP GOOGLE MAPS ON/OFF, HEADER BG COLOR, ADSENSE & SEO */}
+      {/* TAB 3: DYNAMIC SEO META DESCRIPTION & KEYWORDS */}
+      {activeTab === 'seo' && (
+        <AdminSeoModule
+          uid={user.uid}
+          getIdToken={() => user.getIdToken()}
+          siteSettings={siteSettings}
+        />
+      )}
+
+      {/* TAB 4: SHOP GOOGLE MAPS ON/OFF, HEADER BG COLOR, ADSENSE & SEO */}
       {activeTab === 'settings' && (
         <form onSubmit={handleSaveSiteSettings} className="mt-6 space-y-6">
           {settingsError && (
