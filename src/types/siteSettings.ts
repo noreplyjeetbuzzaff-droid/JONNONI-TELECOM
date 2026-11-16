@@ -58,7 +58,7 @@ export interface SiteSettings {
 }
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
-  shopMapEnabled: false,
+  shopMapEnabled: true,
   shopName: 'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার',
   shopAddress: '',
   shopLat: 23.685,

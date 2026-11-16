@@ -32,7 +32,10 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
   const lng = Number(raw.shopLng);
 
   return {
-    shopMapEnabled: Boolean(raw.shopMapEnabled),
+    shopMapEnabled:
+      typeof raw.shopMapEnabled === 'boolean'
+        ? raw.shopMapEnabled
+        : DEFAULT_SITE_SETTINGS.shopMapEnabled,
     shopName:
       typeof raw.shopName === 'string' && raw.shopName.trim().length >= 2
         ? raw.shopName.trim().slice(0, 120)

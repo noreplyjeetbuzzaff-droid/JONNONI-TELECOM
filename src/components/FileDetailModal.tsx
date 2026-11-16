@@ -9,6 +9,7 @@ import {
   formatTimestamp,
 } from '../types/flashFile';
 import { triggerDirectWebDownload } from '../lib/directDownload';
+import { IndeterminateProgressBar } from './IndeterminateProgressBar';
 import { LoadingSpinner } from './LoadingSpinner';
 
 interface FileDetailModalProps {
@@ -141,38 +142,45 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
           </div>
         )}
 
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <Phone className="h-3.5 w-3.5 text-slate-500" />
-            <span>সহায়তার জন্য কল: </span>
-            <a
-              href="tel:01738266366"
-              className="font-mono font-semibold text-slate-900 hover:text-sky-700 underline underline-offset-2"
-            >
-              01738266366
-            </a>
-          </div>
+        <div className="mt-5 space-y-3 border-t border-slate-200 pt-4">
+          <IndeterminateProgressBar
+            active={downloading}
+            label="সার্ভার থেকে ফাইল যাচাই ও ডাউনলোড শুরু হচ্ছে..."
+          />
 
-          <button
-            type="button"
-            onClick={handleDirectDownload}
-            disabled={downloading}
-            className="btn-3d-primary inline-flex w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-70"
-          >
-            {downloading ? (
-              <LoadingSpinner size="sm" label="ডাউনলোড প্রস্তুত হচ্ছে..." />
-            ) : downloadStarted ? (
-              <>
-                <Check className="h-4 w-4" />
-                <span>ডাউনলোড শুরু হয়েছে</span>
-              </>
-            ) : (
-              <>
-                <Download className="h-4 w-4" />
-                <span>সরাসরি ডাউনলোড করুন</span>
-              </>
-            )}
-          </button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <Phone className="h-3.5 w-3.5 text-slate-500" />
+              <span>সহায়তার জন্য কল: </span>
+              <a
+                href="tel:01738266366"
+                className="font-mono font-semibold text-slate-900 hover:text-sky-700 underline underline-offset-2"
+              >
+                01738266366
+              </a>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDirectDownload}
+              disabled={downloading}
+              className="btn-3d-primary inline-flex min-h-[44px] sm:min-h-[40px] w-full sm:w-auto items-center justify-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-sky-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-75"
+            >
+              {downloading ? (
+                <LoadingSpinner size="sm" label="ডাউনলোড প্রস্তুত হচ্ছে..." />
+              ) : downloadStarted ? (
+                <>
+                  <Check className="h-4 w-4" />
+                  <span>ডাউনলোড শুরু হয়েছে</span>
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  <span>সরাসরি ডাউনলোড করুন</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

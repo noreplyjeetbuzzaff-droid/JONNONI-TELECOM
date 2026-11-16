@@ -30,6 +30,7 @@ import { SiteSettings } from '../types/siteSettings';
 import { triggerDirectWebDownload } from '../lib/directDownload';
 import { trackVisitorEvent } from '../lib/analyticsClient';
 import { FileDetailModal } from './FileDetailModal';
+import { IndeterminateProgressBar } from './IndeterminateProgressBar';
 import { LoadingSpinner } from './LoadingSpinner';
 import { ShopMapSection } from './ShopMapSection';
 import { ServicingGuideSection } from './ServicingGuideSection';
@@ -291,14 +292,14 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
         aria-label="সর্বশেষ সংবাদ ও আপডেট"
       >
         <div className="mx-auto flex max-w-7xl items-center overflow-hidden">
-          <div className="z-10 flex items-center gap-1.5 bg-sky-600 px-3 py-2 text-xs font-bold text-white whitespace-nowrap shrink-0 sm:px-4">
-            <Megaphone className="h-3.5 w-3.5 shrink-0" />
+          <div className="z-10 flex items-center gap-1 bg-sky-600 px-2 py-1 text-[10px] font-bold text-white whitespace-nowrap shrink-0 sm:gap-1.5 sm:px-2.5 sm:py-1.5 sm:text-[11px]">
+            <Megaphone className="h-3 w-3 shrink-0" />
             <span>সর্বশেষ আপডেট</span>
           </div>
-          <div className="relative flex-1 overflow-hidden py-2">
+          <div className="relative flex-1 overflow-hidden py-1 sm:py-1.5">
             <div className="animate-news-marquee text-xs font-medium text-slate-100 sm:text-sm">
-              <span className="px-6 whitespace-nowrap">{tickerText}</span>
-              <span className="px-6 whitespace-nowrap" aria-hidden="true">
+              <span className="px-5 whitespace-nowrap">{tickerText}</span>
+              <span className="px-5 whitespace-nowrap" aria-hidden="true">
                 {tickerText}
               </span>
             </div>
@@ -615,44 +616,51 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                       )}
                     </div>
 
-                    {/* Card Footer: Mobile-friendly >=44px touch targets */}
-                    <div className="mt-4 flex items-center gap-2.5 border-t border-slate-100 pt-3.5">
-                      <button
-                        type="button"
-                        onClick={() => setDetailFile(file)}
-                        className="inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
-                      >
-                        <Info className="h-3.5 w-3.5" />
-                        <span>বিস্তারিত</span>
-                      </button>
+                    {/* Card Footer: Mobile-friendly >=44px touch targets + indeterminate progress */}
+                    <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => setDetailFile(file)}
+                          className="inline-flex min-h-[44px] sm:min-h-[40px] items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer shrink-0"
+                        >
+                          <Info className="h-3.5 w-3.5" />
+                          <span>বিস্তারিত</span>
+                        </button>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDirectDownload(file)}
-                        disabled={isBusy}
-                        className="btn-3d-primary inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700 transition-colors cursor-pointer disabled:opacity-75"
-                      >
-                        {isBusy ? (
-                          <LoadingSpinner
-                            size="sm"
-                            label="ডাউনলোড হচ্ছে..."
-                          />
-                        ) : isDone ? (
-                          <>
-                            <Check className="h-4 w-4" />
-                            <span>ডাউনলোড শুরু হয়েছে</span>
-                          </>
-                        ) : (
-                          <>
-                            <Download className="h-4 w-4" />
-                            <span>
-                              {isPaid
-                                ? `ডাউনলোড (${formatPriceBn(file.price)})`
-                                : 'সরাসরি ডাউনলোড'}
-                            </span>
-                          </>
-                        )}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDirectDownload(file)}
+                          disabled={isBusy}
+                          className="btn-3d-primary inline-flex min-h-[44px] sm:min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700 transition-colors cursor-pointer disabled:opacity-80"
+                        >
+                          {isBusy ? (
+                            <LoadingSpinner
+                              size="sm"
+                              label="ডাউনলোড হচ্ছে..."
+                            />
+                          ) : isDone ? (
+                            <>
+                              <Check className="h-4 w-4" />
+                              <span>ডাউনলোড শুরু হয়েছে</span>
+                            </>
+                          ) : (
+                            <>
+                              <Download className="h-4 w-4" />
+                              <span>
+                                {isPaid
+                                  ? `ডাউনলোড (${formatPriceBn(file.price)})`
+                                  : 'সরাসরি ডাউনলোড'}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      <IndeterminateProgressBar
+                        active={isBusy}
+                        label="সার্ভার থেকে ফাইল যাচাই ও ডাউনলোড শুরু হচ্ছে..."
+                      />
                     </div>
                   </article>
                 );

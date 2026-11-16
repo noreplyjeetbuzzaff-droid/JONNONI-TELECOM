@@ -5,6 +5,8 @@ import {
   APIProvider,
   InfoWindow,
   Map as GoogleMap,
+  MapCameraChangedEvent,
+  MapCameraProps,
   MapMouseEvent,
   Pin,
   useAdvancedMarkerRef,
@@ -26,13 +28,76 @@ interface ShopMapSectionProps {
 const MAPS_API_KEY =
   (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined)?.trim() || '';
 
+const EmbeddedGoogleMapFallback: React.FC<{
+  lat: number;
+  lng: number;
+  zoom: number;
+  shopName: string;
+  shopAddress: string;
+  editable?: boolean;
+  heightClassName: string;
+}> = ({ lat, lng, zoom, shopName, shopAddress, editable, heightClassName }) => {
+  const embedSrc = `https://maps.google.com/maps?q=${encodeURIComponent(
+    `${lat},${lng}`
+  )}&z=${zoom}&hl=bn&output=embed`;
+
+  return (
+    <div
+      className={`relative ${heightClassName} min-h-[288px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100`}
+    >
+      <iframe
+        title={`${shopName} — Google Map`}
+        src={embedSrc}
+        loading="lazy"
+        referrerPolicy="no-referrer-when-downgrade"
+        className="h-full w-full border-0"
+        allowFullScreen
+      />
+      <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="pointer-events-auto rounded-lg border border-slate-200/90 bg-white/95 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm">
+          <p className="font-display font-bold text-slate-900">{shopName}</p>
+          {shopAddress && (
+            <p className="text-[11px] text-slate-600">{shopAddress}</p>
+          )}
+          {editable && (
+            <p className="mt-0.5 text-[10px] text-sky-700">
+              উপরের Latitude/Longitude বা &quot;GPS অবস্থান নিন&quot; ব্যবহার করে পিন পরিবর্তন করুন
+            </p>
+          )}
+        </div>
+        <a
+          href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-700"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          <span>Google Maps-এ খুলুন</span>
+        </a>
+      </div>
+    </div>
+  );
+};
+
 const MapLoadingGuard: React.FC<{
   children: React.ReactNode;
   lat: number;
   lng: number;
+  zoom: number;
   shopName: string;
   shopAddress: string;
-}> = ({ children, lat, lng, shopName, shopAddress }) => {
+  editable?: boolean;
+  heightClassName: string;
+}> = ({
+  children,
+  lat,
+  lng,
+  zoom,
+  shopName,
+  shopAddress,
+  editable,
+  heightClassName,
+}) => {
   const status = useApiLoadingStatus();
 
   if (
@@ -40,24 +105,15 @@ const MapLoadingGuard: React.FC<{
     status === APILoadingStatus.AUTH_FAILURE
   ) {
     return (
-      <div className="flex h-full w-full flex-col items-center justify-center rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
-        <MapPin className="h-7 w-7 text-amber-700" />
-        <p className="mt-2 font-display text-sm font-semibold text-amber-950">
-          গুগল ম্যাপ এই মুহূর্তে লোড করা যায়নি
-        </p>
-        {shopAddress && (
-          <p className="mt-1 text-xs text-amber-900">{shopAddress}</p>
-        )}
-        <a
-          href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-amber-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-amber-800"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          <span>Google Maps-এ {shopName} দেখুন</span>
-        </a>
-      </div>
+      <EmbeddedGoogleMapFallback
+        lat={lat}
+        lng={lng}
+        zoom={zoom}
+        shopName={shopName}
+        shopAddress={shopAddress}
+        editable={editable}
+        heightClassName={heightClassName}
+      />
     );
   }
 
@@ -137,6 +193,23 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
   onSelectLocation,
   heightClassName = 'h-72 sm:h-80',
 }) => {
+  const targetZoom = pinSet ? 15 : 7;
+  const [cameraProps, setCameraProps] = useState<MapCameraProps>({
+    center: { lat, lng },
+    zoom: targetZoom,
+  });
+
+  useEffect(() => {
+    setCameraProps({
+      center: { lat, lng },
+      zoom: targetZoom,
+    });
+  }, [lat, lng, targetZoom]);
+
+  const handleCameraChange = useCallback((ev: MapCameraChangedEvent) => {
+    setCameraProps(ev.detail);
+  }, []);
+
   const handleMapClick = useCallback(
     (ev: MapMouseEvent) => {
       if (!editable || !onSelectLocation) return;
@@ -153,52 +226,45 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
 
   if (!MAPS_API_KEY) {
     return (
-      <div
-        className={`flex ${heightClassName} w-full flex-col items-center justify-center rounded-xl border border-slate-200 bg-slate-100 p-6 text-center`}
-      >
-        <MapPin className="h-7 w-7 text-sky-600" />
-        <p className="mt-2 font-display text-sm font-semibold text-slate-900">
-          {shopName}
-        </p>
-        {shopAddress ? (
-          <p className="mt-1 text-xs text-slate-600">{shopAddress}</p>
-        ) : (
-          <p className="mt-1 text-xs text-slate-500">
-            দোকানের অবস্থান: <span className="font-mono">{lat}, {lng}</span>
-          </p>
-        )}
-        <a
-          href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          <span>Google Maps অ্যাপে খুলুন</span>
-        </a>
-      </div>
+      <EmbeddedGoogleMapFallback
+        lat={lat}
+        lng={lng}
+        zoom={targetZoom}
+        shopName={shopName}
+        shopAddress={shopAddress}
+        editable={editable}
+        heightClassName={heightClassName}
+      />
     );
   }
 
   return (
     <div
-      className={`${heightClassName} w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100`}
+      className={`relative ${heightClassName} min-h-[288px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100`}
     >
-      <APIProvider apiKey={MAPS_API_KEY} language="bn" region="BD">
+      <APIProvider
+        apiKey={MAPS_API_KEY}
+        libraries={['marker']}
+        language="bn"
+        region="BD"
+      >
         <MapLoadingGuard
           lat={lat}
           lng={lng}
+          zoom={targetZoom}
           shopName={shopName}
           shopAddress={shopAddress}
+          editable={editable}
+          heightClassName="h-full"
         >
           <GoogleMap
+            {...cameraProps}
             mapId="DEMO_MAP_ID"
             internalUsageAttributionIds={['gmp_mcp_codeassist_v1_aistudio']}
-            center={{ lat, lng }}
-            zoom={pinSet ? 15 : 7}
             gestureHandling="cooperative"
+            onCameraChanged={handleCameraChange}
             onClick={handleMapClick}
-            style={{ width: '100%', height: '100%' }}
+            style={{ width: '100%', height: '100%', minHeight: '288px' }}
           >
             <ShopMarkerAndWindow
               shopName={shopName}
@@ -210,6 +276,15 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
           </GoogleMap>
         </MapLoadingGuard>
       </APIProvider>
+      <a
+        href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-white"
+      >
+        <MapPin className="h-3.5 w-3.5 text-sky-600" />
+        <span>Google Maps-এ খুলুন</span>
+      </a>
     </div>
   );
 };
