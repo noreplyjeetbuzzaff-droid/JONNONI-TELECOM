@@ -22,6 +22,12 @@ const VALID_THEMES: HeaderBgTheme[] = [
   'white',
 ];
 
+const LEGACY_DEFAULT_SHOP_NAME = 'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার';
+const LEGACY_DEFAULT_SEO_DESC =
+  'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার (01738266366) — যেকোনো মডেলের মোবাইল ফ্ল্যাশ টুলস, স্টক ফার্মওয়্যার, ইউএসবি ড্রাইভার ও সরাসরি ডাউনলোড পোর্টাল।';
+const LEGACY_DEFAULT_SEO_KEYWORDS =
+  'জননী টেলিকম, Jonnoi Telecom, মোবাইল ফ্ল্যাশ ফাইল, Mobile Flash Tools, Stock Firmware Download, Samsung Flash File, Xiaomi Fastboot ROM, FRP Unlock File, USB Driver, Mobile Servicing Center Bangladesh';
+
 function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSettings {
   if (!raw) return DEFAULT_SITE_SETTINGS;
   const theme = VALID_THEMES.includes(raw.headerBgTheme as HeaderBgTheme)
@@ -30,6 +36,11 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
 
   const lat = Number(raw.shopLat);
   const lng = Number(raw.shopLng);
+  const rawShopName = typeof raw.shopName === 'string' ? raw.shopName.trim() : '';
+  const rawSeoDesc =
+    typeof raw.seoDescription === 'string' ? raw.seoDescription.trim() : '';
+  const rawSeoKw =
+    typeof raw.seoKeywords === 'string' ? raw.seoKeywords.trim() : '';
 
   return {
     shopMapEnabled:
@@ -37,13 +48,13 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
         ? raw.shopMapEnabled
         : DEFAULT_SITE_SETTINGS.shopMapEnabled,
     shopName:
-      typeof raw.shopName === 'string' && raw.shopName.trim().length >= 2
-        ? raw.shopName.trim().slice(0, 120)
+      rawShopName.length >= 2 && rawShopName !== LEGACY_DEFAULT_SHOP_NAME
+        ? rawShopName.slice(0, 120)
         : DEFAULT_SITE_SETTINGS.shopName,
     shopAddress:
-      typeof raw.shopAddress === 'string'
+      typeof raw.shopAddress === 'string' && raw.shopAddress.trim() !== ''
         ? raw.shopAddress.trim().slice(0, 300)
-        : '',
+        : DEFAULT_SITE_SETTINGS.shopAddress,
     shopLat:
       Number.isFinite(lat) && lat >= -90 && lat <= 90
         ? lat
@@ -78,12 +89,12 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
         ? raw.adsenseSlotBottom.trim()
         : '',
     seoDescription:
-      typeof raw.seoDescription === 'string' && raw.seoDescription.trim() !== ''
-        ? raw.seoDescription.trim().slice(0, 320)
+      rawSeoDesc !== '' && rawSeoDesc !== LEGACY_DEFAULT_SEO_DESC
+        ? rawSeoDesc.slice(0, 320)
         : DEFAULT_SITE_SETTINGS.seoDescription,
     seoKeywords:
-      typeof raw.seoKeywords === 'string' && raw.seoKeywords.trim() !== ''
-        ? raw.seoKeywords.trim().slice(0, 500)
+      rawSeoKw !== '' && rawSeoKw !== LEGACY_DEFAULT_SEO_KEYWORDS
+        ? rawSeoKw.slice(0, 500)
         : DEFAULT_SITE_SETTINGS.seoKeywords,
   };
 }

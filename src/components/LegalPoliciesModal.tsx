@@ -42,7 +42,7 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
               id="legal-modal-title"
               className="font-display text-base font-bold text-slate-900 sm:text-lg"
             >
-              ওয়েবসাইট নীতিমালা ও তথ্য — জননী টেলিকম
+              ওয়েবসাইট নীতিমালা ও তথ্য — জননী টেলিকম ও ট্রেনিং সেন্টার
             </h2>
           </div>
           <button
@@ -79,10 +79,10 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
                 গোপনীয়তা নীতি (Privacy Policy)
               </h3>
               <p>
-                <strong>জননী টেলিকম এন্ড সার্ভিসিং সেন্টার</strong> আপনার
-                গোপনীয়তাকে সর্বোচ্চ গুরুত্ব দেয়। এই ওয়েবসাইট ব্যবহারের সময়
-                আমরা কোনো ব্যক্তিগত সংবেদনশীল তথ্য (যেমন ব্যাংক পিন বা পাসওয়ার্ড)
-                সংগ্রহ করি না।
+                <strong>জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার</strong>{' '}
+                (মানিকগঞ্জ, খানসামা, দিনাজপুর) আপনার গোপনীয়তাকে সর্বোচ্চ গুরুত্ব
+                দেয়। এই ওয়েবসাইট ব্যবহারের সময় আমরা কোনো ব্যক্তিগত সংবেদনশীল
+                তথ্য (যেমন ব্যাংক পিন বা পাসওয়ার্ড) সংগ্রহ করি না।
               </p>
               <h4 className="font-semibold text-slate-900">
                 ১. কুকি ও ভিজিটর পরিসংখ্যান
@@ -201,9 +201,10 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
                 আমাদের সম্পর্কে (About Us)
               </h3>
               <p>
-                <strong>জননী টেলিকম এন্ড সার্ভিসিং সেন্টার</strong> বাংলাদেশের
-                মোবাইল টেকনিশিয়ান এবং গ্রাহকদের জন্য একটি নির্ভরযোগ্য মোবাইল
-                সফটওয়্যার, ফার্মওয়্যার হাব এবং হার্ডওয়্যার সার্ভিসিং কেন্দ্র।
+                <strong>জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার</strong>{' '}
+                (মানিকগঞ্জ, খানসামা, দিনাজপুর) মোবাইল টেকনিশিয়ান ও শিক্ষার্থীদের
+                জন্য একটি নির্ভরযোগ্য ফ্ল্যাশ ফাইল হাব, হার্ডওয়্যার-সফটওয়্যার
+                সলিউশন ও প্র্যাকটিক্যাল প্রশিক্ষণ কেন্দ্র।
               </p>
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
                 <p className="flex items-center gap-2 font-semibold text-slate-900">
@@ -211,13 +212,13 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
                   <span>আমাদের মূল কার্যক্রম</span>
                 </p>
                 <ul className="list-disc pl-5 text-xs space-y-1">
-                  <li>Samsung, Xiaomi, Oppo, Vivo, Realme, Tecno, Infinix ও সব ব্র্যান্ডের অফিসিয়াল ফ্ল্যাশ ফাইল</li>
-                  <li>ডেড বুট রিপেয়ার, EMMC/UFS প্রোগ্রামিং ও হার্ডওয়্যার আইসি সার্ভিসিং</li>
-                  <li>FRP, MDM এবং কান্ট্রি নেটওয়ার্ক আনলক সাপোর্ট</li>
+                  <li>সকল ধরনের বাটন ও স্মার্টফোনের শতভাগ পরীক্ষিত ফ্ল্যাশ ফাইল (গুগল ড্রাইভে সহজ ডাউনলোড)</li>
+                  <li>মোবাইল হার্ডওয়্যার ও সফটওয়্যার সমস্যা সমাধান, আইসি রিপেয়ার ও আনলক সাপোর্ট</li>
+                  <li>দক্ষ টেকনিশিয়ান দ্বারা ৩ মাসে প্র্যাকটিক্যাল মোবাইল সার্ভিসিং ট্রেনিং</li>
                 </ul>
                 <p className="pt-2 flex items-center gap-2 text-xs font-semibold text-slate-900">
                   <Phone className="h-3.5 w-3.5 text-sky-600" />
-                  <span>যোগাযোগ ও হেল্পলাইন: 01738266366</span>
+                  <span>ঠিকানা: মানিকগঞ্জ, খানসামা, দিনাজপুর · কল: 01738266366</span>
                 </p>
               </div>
             </>
@@ -227,7 +228,7 @@ export const LegalPoliciesModal: React.FC<LegalPoliciesModalProps> = ({
         <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-3 text-xs text-slate-500">
           <span className="flex items-center gap-1.5">
             <FileText className="h-3.5 w-3.5" />
-            <span>জননী টেলিকম এন্ড সার্ভিসিং সেন্টার</span>
+            <span>জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার</span>
           </span>
           <button
             type="button"

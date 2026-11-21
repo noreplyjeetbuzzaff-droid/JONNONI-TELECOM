@@ -32,14 +32,29 @@ const EmbeddedGoogleMapFallback: React.FC<{
   lat: number;
   lng: number;
   zoom: number;
+  pinSet: boolean;
   shopName: string;
   shopAddress: string;
   editable?: boolean;
   heightClassName: string;
-}> = ({ lat, lng, zoom, shopName, shopAddress, editable, heightClassName }) => {
+}> = ({
+  lat,
+  lng,
+  zoom,
+  pinSet,
+  shopName,
+  shopAddress,
+  editable,
+  heightClassName,
+}) => {
+  const mapQuery =
+    !pinSet && shopAddress.trim()
+      ? `${shopAddress.trim()}, Bangladesh`
+      : `${lat},${lng}`;
+  const effectiveZoom = !pinSet && shopAddress.trim() ? 13 : zoom;
   const embedSrc = `https://maps.google.com/maps?q=${encodeURIComponent(
-    `${lat},${lng}`
-  )}&z=${zoom}&hl=bn&output=embed`;
+    mapQuery
+  )}&z=${effectiveZoom}&hl=bn&output=embed`;
 
   return (
     <div
@@ -66,7 +81,9 @@ const EmbeddedGoogleMapFallback: React.FC<{
           )}
         </div>
         <a
-          href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+            mapQuery
+          )}`}
           target="_blank"
           rel="noopener noreferrer"
           className="pointer-events-auto inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-700"
@@ -84,6 +101,7 @@ const MapLoadingGuard: React.FC<{
   lat: number;
   lng: number;
   zoom: number;
+  pinSet: boolean;
   shopName: string;
   shopAddress: string;
   editable?: boolean;
@@ -93,6 +111,7 @@ const MapLoadingGuard: React.FC<{
   lat,
   lng,
   zoom,
+  pinSet,
   shopName,
   shopAddress,
   editable,
@@ -109,6 +128,7 @@ const MapLoadingGuard: React.FC<{
         lat={lat}
         lng={lng}
         zoom={zoom}
+        pinSet={pinSet}
         shopName={shopName}
         shopAddress={shopAddress}
         editable={editable}
@@ -193,7 +213,7 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
   onSelectLocation,
   heightClassName = 'h-72 sm:h-80',
 }) => {
-  const targetZoom = pinSet ? 15 : 7;
+  const targetZoom = pinSet ? 15 : 13;
   const [cameraProps, setCameraProps] = useState<MapCameraProps>({
     center: { lat, lng },
     zoom: targetZoom,
@@ -230,6 +250,7 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
         lat={lat}
         lng={lng}
         zoom={targetZoom}
+        pinSet={pinSet}
         shopName={shopName}
         shopAddress={shopAddress}
         editable={editable}
@@ -252,6 +273,7 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
           lat={lat}
           lng={lng}
           zoom={targetZoom}
+          pinSet={pinSet}
           shopName={shopName}
           shopAddress={shopAddress}
           editable={editable}
@@ -277,7 +299,11 @@ export const ShopMapSection: React.FC<ShopMapSectionProps> = ({
         </MapLoadingGuard>
       </APIProvider>
       <a
-        href={`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`}
+        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+          !pinSet && shopAddress.trim()
+            ? `${shopAddress.trim()}, Bangladesh`
+            : `${lat},${lng}`
+        )}`}
         target="_blank"
         rel="noopener noreferrer"
         className="absolute bottom-3 left-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white/95 px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-white"

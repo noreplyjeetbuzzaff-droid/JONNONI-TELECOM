@@ -61,10 +61,10 @@ export interface SiteSettings {
 
 export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   shopMapEnabled: true,
-  shopName: 'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার',
-  shopAddress: '',
-  shopLat: 23.685,
-  shopLng: 90.3563,
+  shopName: 'জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার',
+  shopAddress: 'মানিকগঞ্জ, খানসামা, দিনাজপুর',
+  shopLat: 25.9265,
+  shopLng: 88.7425,
   shopPinSet: false,
   shopOpen24Hours: true,
   shopStatusNote: '',
@@ -74,9 +74,9 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
   adsenseSlotTop: '',
   adsenseSlotBottom: '',
   seoDescription:
-    'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার (01738266366) — যেকোনো মডেলের মোবাইল ফ্ল্যাশ টুলস, স্টক ফার্মওয়্যার, ইউএসবি ড্রাইভার ও সরাসরি ডাউনলোড পোর্টাল।',
+    'জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার (মানিকগঞ্জ, খানসামা, দিনাজপুর) — শতভাগ পরীক্ষিত বাটন ও স্মার্টফোন ফ্লাশ ফাইল, হার্ডওয়্যার-সফটওয়্যার সমাধান ও ৩ মাসের ট্রেনিং। কল: 01738266366',
   seoKeywords:
-    'জননী টেলিকম, Jonnoi Telecom, মোবাইল ফ্ল্যাশ ফাইল, Mobile Flash Tools, Stock Firmware Download, Samsung Flash File, Xiaomi Fastboot ROM, FRP Unlock File, USB Driver, Mobile Servicing Center Bangladesh',
+    'জননী টেলিকম, জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার, মানিকগঞ্জ খানসামা দিনাজপুর, মোবাইল ফ্লাশ ফাইল, হার্ডওয়্যার প্রবলেম সলিউশন, মোবাইল সার্ভিসিং ট্রেনিং, Button Phone Flash File, Smartphone Firmware, Google Drive Download',
 };
 
 export interface ActiveVisitorInfo {

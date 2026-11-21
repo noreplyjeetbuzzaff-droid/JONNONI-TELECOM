@@ -41,11 +41,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             onNavigateView('catalog');
             window.scrollTo({ top: 0, behavior: 'smooth' });
           }}
-          className={`font-display text-base font-bold tracking-tight whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 rounded ${
+          className={`font-display text-sm sm:text-base font-bold tracking-tight whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 rounded ${
             theme.isDark ? 'text-white' : 'text-slate-900'
           }`}
         >
-          জননী টেলিকম
+          জননী টেলিকম ও ট্রেনিং সেন্টার
         </button>
 
         {/* Zone 2: Concise single-line navigation links */}
@@ -80,7 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               theme.isDark ? 'hover:text-white' : 'hover:text-slate-900'
             }`}
           >
-            সার্ভিসিং
+            সার্ভিসিং ও ট্রেনিং
           </button>
           <button
             type="button"

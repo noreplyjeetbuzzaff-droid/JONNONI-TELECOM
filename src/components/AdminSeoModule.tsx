@@ -306,7 +306,7 @@ export const AdminSeoModule: React.FC<AdminSeoModuleProps> = ({
                 {previewUrl}
               </p>
               <p className="mt-1 font-display text-base font-semibold leading-snug text-blue-700">
-                জননী টেলিকম — মোবাইল ফ্ল্যাশ টুলস ও ফার্মওয়্যার
+                জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার — মোবাইল ফ্লাশ ফাইল ও হার্ডওয়্যার সলিউশন
               </p>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-700">
                 {description.trim() || DEFAULT_SITE_SETTINGS.seoDescription}

@@ -265,7 +265,9 @@ export default function App() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 text-xs text-slate-500 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="font-medium text-slate-700">
-              {siteSettings.shopName} · যোগাযোগ:{' '}
+              {siteSettings.shopName} ·{' '}
+              {siteSettings.shopAddress || 'মানিকগঞ্জ, খানসামা, দিনাজপুর'} ·
+              যোগাযোগ:{' '}
               <a
                 href="tel:01738266366"
                 className="font-mono font-semibold text-slate-900 hover:text-sky-700"

@@ -5,6 +5,7 @@ import {
   Cpu,
   Download,
   FileCode2,
+  GraduationCap,
   HardDrive,
   Info,
   MapPin,
@@ -142,21 +143,25 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
     sortBy,
   ]);
 
+  const resolvedAddress =
+    siteSettings.shopAddress?.trim() || 'মানিকগঞ্জ, খানসামা, দিনাজপুর';
+
   const tickerText = useMemo(() => {
     const latestModels = files
       .slice(0, 4)
       .map((f) => `${f.brand} ${f.model} (${formatPriceBn(f.price)})`)
       .join('  •  ');
     const baseItems = [
-      'জননী টেলিকম এন্ড সার্ভিসিং সেন্টার — যেকোনো মডেলের মোবাইল ফ্ল্যাশ টুলস, স্টক ফার্মওয়্যার ও আনলক ফাইল সরাসরি ওয়েবসাইট থেকেই ডাউনলোড করুন',
-      'সরাসরি যোগাযোগ ও সাপোর্ট নম্বর: 01738266366 (কল ও হোয়াটসঅ্যাপ)',
-      'সকল ফাইল গুগল ড্রাইভ থেকে সরাসরি হাই-স্পিডে ডাউনলোড হয়',
+      'সকল ধরনের বাটন ও স্মার্টফোনের ফ্লাশ ফাইল সহজে গুগল ড্রাইভের মাধ্যমে ডাউনলোড করা যায় — প্রতিটি ফাইল শতভাগ পরীক্ষিত',
+      'এছাড়াও এখানে মোবাইল সংক্রান্ত হার্ডওয়্যার ও সফটওয়্যার সমস্যার সমাধান দেওয়া হয় এবং দক্ষ টেকনিশিয়ান দ্বারা ট্রেনিং দেওয়া হয়',
+      `তাই আজই চলে আসুন আমাদের ট্রেনিং সেন্টারে (${resolvedAddress}) | তিন মাসে হয়ে উঠুন একজন দক্ষ টেকনিশিয়ান`,
+      'সরাসরি যোগাযোগ ও ভর্তি হেল্পলাইন: 01738266366 (কল ও হোয়াটসঅ্যাপ)',
     ];
     if (latestModels) {
-      baseItems.unshift(`নতুন আপলোড: ${latestModels}`);
+      baseItems.push(`নতুন আপলোড: ${latestModels}`);
     }
     return baseItems.join('   ★   ');
-  }, [files]);
+  }, [files, resolvedAddress]);
 
   const hasActiveFilters =
     searchQuery.trim() !== '' ||
@@ -193,10 +198,10 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
   const handleWhatsAppRequest = (e: React.FormEvent) => {
     e.preventDefault();
-    const msg = `আসসালামু আলাইকুম জননী টেলিকম এন্ড সার্ভিসিং সেন্টার, আমার একটি মোবাইল ফ্ল্যাশ ফাইল প্রয়োজন।\nব্র্যান্ড: ${
+    const msg = `আসসালামু আলাইকুম ${siteSettings.shopName}, আমার একটি মোবাইল ফ্ল্যাশ ফাইল বা সার্ভিসিং/ট্রেনিং তথ্য প্রয়োজন।\nব্র্যান্ড: ${
       reqBrand.trim() || 'যেকোনো'
     }\nমডেল: ${reqModel.trim() || 'উল্লেখ করা হয়নি'}\nবিবরণ: ${
-      reqNote.trim() || 'দয়া করে ফাইলের প্রাপ্যতা জানাবেন।'
+      reqNote.trim() || 'দয়া করে বিস্তারিত জানাবেন।'
     }`;
     const url = `https://wa.me/8801738266366?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
@@ -207,11 +212,11 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
       {/* YouTube-Style Channel Art Banner (BG Removed Studio Portrait) */}
       <section className="relative overflow-hidden bg-slate-950 text-white">
         <div className="mx-auto max-w-7xl">
-          <div className="relative min-h-[195px] sm:min-h-[230px] lg:min-h-[265px] w-full overflow-hidden">
+          <div className="relative min-h-[210px] sm:min-h-[245px] lg:min-h-[280px] w-full overflow-hidden">
             {!bannerImgError ? (
               <img
                 src={YOUTUBE_BANNER_SRC}
-                alt="জননী টেলিকম এন্ড সার্ভিসিং সেন্টার ব্যানার"
+                alt={`${siteSettings.shopName} ব্যানার`}
                 onError={() => setBannerImgError(true)}
                 className="absolute inset-0 h-full w-full object-cover object-right-top"
               />
@@ -222,14 +227,14 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
             {/* Contrast Scrim: preserves crisp left text & clear right portrait */}
             <div
               aria-hidden="true"
-              className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/85 sm:via-slate-950/75 to-transparent"
+              className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/90 sm:via-slate-950/80 to-transparent"
             />
 
-            <div className="relative z-10 flex h-full min-h-[195px] sm:min-h-[230px] lg:min-h-[265px] flex-col justify-center px-4 py-6 sm:px-8 lg:px-10">
-              <div className="max-w-[66%] sm:max-w-[60%]">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-[11px] font-medium tracking-wide text-sky-300 sm:text-xs">
-                    জননী টেলিকম এন্ড সার্ভিসিং সেন্টার
+            <div className="relative z-10 flex h-full min-h-[210px] sm:min-h-[245px] lg:min-h-[280px] flex-col justify-center px-4 py-6 sm:px-8 lg:px-10">
+              <div className="max-w-[78%] sm:max-w-[66%] lg:max-w-[62%]">
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+                  <p className="text-[11px] font-semibold tracking-wide text-sky-300 sm:text-xs">
+                    {siteSettings.shopName} · {resolvedAddress}
                   </p>
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[10px] font-semibold sm:text-[11px] ${
@@ -253,14 +258,15 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                   </span>
                 </div>
                 <h1
-                  className="mt-1.5 font-display text-xl font-bold leading-snug tracking-tight text-white sm:text-3xl lg:text-4xl"
+                  className="mt-2 font-display text-lg font-bold leading-snug tracking-tight text-white sm:text-3xl lg:text-4xl"
                   style={{ textWrap: 'balance' }}
                 >
-                  মোবাইল ফ্ল্যাশ টুলস ও ফার্মওয়্যার হাব
+                  মোবাইল ফ্ল্যাশ ফাইল এন্ড হার্ডওয়্যার প্রবলেম সলিউশন
                 </h1>
-                <p className="mt-1.5 hidden max-w-xl text-xs leading-relaxed text-slate-300 sm:block sm:text-sm">
-                  যেকোনো মডেলের অফিসিয়াল ফার্মওয়্যার, ফ্ল্যাশ টুলস, ড্রাইভার ও
-                  আনলক ফাইল সরাসরি ওয়েবসাইট থেকেই ডাউনলোড করুন।
+                <p className="mt-2 max-w-2xl text-[11px] leading-relaxed text-slate-200 sm:text-sm">
+                  সকল ধরনের বাটন ও স্মার্টফোনের শতভাগ পরীক্ষিত ফ্লাশ ফাইল সহজে
+                  গুগল ড্রাইভ থেকে ডাউনলোড, হার্ডওয়্যার-সফটওয়্যার সমাধান এবং
+                  তিন মাসে দক্ষ টেকনিশিয়ান হওয়ার ট্রেনিং সেন্টার।
                 </p>
 
                 <div className="mt-4 flex flex-wrap items-center gap-2.5">
@@ -270,6 +276,13 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                   >
                     <Search className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     <span>ফাইল খুঁজুন</span>
+                  </a>
+                  <a
+                    href="#servicing"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-sky-400/40 bg-sky-950/60 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-sky-900/70 transition-colors whitespace-nowrap shrink-0 sm:px-4 sm:py-2.5 sm:text-sm"
+                  >
+                    <GraduationCap className="h-3.5 w-3.5 text-sky-300 sm:h-4 sm:w-4" />
+                    <span>৩ মাসের ট্রেনিং</span>
                   </a>
                   <a
                     href="tel:01738266366"
@@ -678,10 +691,10 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
               <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
               <div>
                 <p className="font-display text-sm font-semibold text-slate-900">
-                  যেকোনো মডেলের সাপোর্ট
+                  বাটন ও স্মার্টফোন ফ্ল্যাশ ফাইল
                 </p>
                 <p className="mt-0.5 text-xs text-slate-600">
-                  Samsung, Xiaomi, Realme, Oppo, Vivo, Infinix, Tecno ও সব ব্র্যান্ড
+                  সকল ধরনের বাটন ও স্মার্টফোনের শতভাগ পরীক্ষিত ফ্ল্যাশ ফাইল
                 </p>
               </div>
             </div>
@@ -690,10 +703,10 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
               <HardDrive className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
               <div>
                 <p className="font-display text-sm font-semibold text-slate-900">
-                  ওয়েবসাইটে সরাসরি ডাউনলোড
+                  গুগল ড্রাইভের মাধ্যমে ডাউনলোড
                 </p>
                 <p className="mt-0.5 text-xs text-slate-600">
-                  গুগল ড্রাইভে না নিয়ে সরাসরি ব্রাউজারে ফাইল ডাউনলোড সুবিধা
+                  গুগল ড্রাইভ থেকে সহজে ও সরাসরি হাই-স্পিডে নিরাপদ ডাউনলোড
                 </p>
               </div>
             </div>
@@ -702,22 +715,22 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
               <Cpu className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
               <div>
                 <p className="font-display text-sm font-semibold text-slate-900">
-                  সব চিপসেট প্ল্যাটফর্ম
+                  হার্ডওয়্যার ও সফটওয়্যার সলিউশন
                 </p>
                 <p className="mt-0.5 text-xs text-slate-600">
-                  MTK, Qualcomm, Unisoc SPD, Exynos, Kirin ও Apple
+                  MTK, Qualcomm, SPD, আইসি রিপেয়ার, ডেড বুট ও আনলক সেবা
                 </p>
               </div>
             </div>
 
             <div className="flex items-start gap-3">
-              <Phone className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
+              <GraduationCap className="mt-0.5 h-5 w-5 shrink-0 text-sky-600" />
               <div>
                 <p className="font-display text-sm font-semibold text-slate-900">
-                  সরাসরি শপ হেল্পলাইন
+                  ৩ মাসে দক্ষ টেকনিশিয়ান ট্রেনিং
                 </p>
                 <p className="mt-0.5 text-xs text-slate-600">
-                  কল ও হোয়াটসঅ্যাপ:{' '}
+                  দক্ষ টেকনিশিয়ান দ্বারা প্র্যাকটিক্যাল প্রশিক্ষণ ·{' '}
                   <a
                     href="tel:01738266366"
                     className="font-mono font-semibold text-slate-900 hover:text-sky-700"
@@ -731,7 +744,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
         </div>
       </section>
 
-      {/* Servicing Center & Contact Section */}
+      {/* Servicing Center, Training Center & Contact Section */}
       <section
         id="servicing"
         className="border-t border-slate-200 bg-slate-50 py-12"
@@ -740,11 +753,11 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:items-stretch">
             {/* Left Image */}
             <div className="lg:col-span-5">
-              <div className="card-3d relative h-64 w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-900 lg:h-full lg:min-h-[320px]">
+              <div className="card-3d relative h-64 w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-900 lg:h-full lg:min-h-[340px]">
                 {!benchImgError ? (
                   <img
                     src={BENCH_IMAGE_SRC}
-                    alt="মোবাইল হার্ডওয়্যার আইসি ও সার্ভিসিং ওয়ার্কবেঞ্চ"
+                    alt="মোবাইল হার্ডওয়্যার আইসি ও সার্ভিসিং ট্রেনিং ওয়ার্কবেঞ্চ"
                     onError={() => setBenchImgError(true)}
                     className="h-full w-full object-cover"
                   />
@@ -752,43 +765,75 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                   <div className="flex h-full w-full flex-col items-center justify-center bg-slate-900 p-6 text-slate-300">
                     <Wrench className="h-10 w-10 text-sky-400" />
                     <p className="mt-3 font-display text-sm font-semibold text-white">
-                      হার্ডওয়্যার ও EMMC/UFS সার্ভিসিং
+                      হার্ডওয়্যার, সফটওয়্যার ও ট্রেনিং সেন্টার
                     </p>
                   </div>
                 )}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/90 via-slate-950/45 to-transparent px-5 py-4">
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/95 via-slate-950/60 to-transparent px-5 py-4">
                   <p className="font-display text-sm font-semibold text-white">
-                    সম্পূর্ণ মোবাইল হার্ডওয়্যার ও সফটওয়্যার সেবা
+                    মোবাইল হার্ডওয়্যার-সফটওয়্যার সমাধান ও ট্রেনিং সেন্টার
                   </p>
                   <p className="text-xs text-slate-200">
-                    ডেড বুট রিপেয়ার · কান্ট্রি আনলক · লজিক বোর্ড সার্ভিসিং
+                    {resolvedAddress} · তিন মাসে হয়ে উঠুন একজন দক্ষ টেকনিশিয়ান
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Right Services & Contact / File Request */}
+            {/* Right Services, Training & Contact / File Request */}
             <div
               id="contact"
               className="flex flex-col justify-between lg:col-span-7"
             >
               <div>
-                <p className="text-xs font-medium text-slate-500">
-                  দোকান ও যোগাযোগের তথ্য
+                <p className="text-xs font-medium text-sky-700">
+                  দোকান, ট্রেনিং সেন্টার ও যোগাযোগের তথ্য
                 </p>
                 <h2 className="mt-1 font-display text-2xl font-bold tracking-tight text-slate-900">
                   {siteSettings.shopName}
                 </h2>
                 <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                  কোনো নির্দিষ্ট মডেলের ফ্ল্যাশ ফাইল, ডাম্প ফাইল বা প্রফেশনাল
-                  মোবাইল সার্ভিসিং প্রয়োজন হলে সরাসরি কল করুন অথবা নিচের ফর্মের
-                  মাধ্যমে অনুরোধ পাঠান।
+                  সকল ধরনের বাটন ও স্মার্টফোনের শতভাগ পরীক্ষিত ফ্লাশ ফাইল,
+                  মোবাইল সংক্রান্ত হার্ডওয়্যার ও সফটওয়্যার সমস্যার সমাধান এবং
+                  দক্ষ টেকনিশিয়ান দ্বারা ট্রেনিং নিতে আজই চলে আসুন আমাদের
+                  সেন্টারে।
                 </p>
+
+                {/* Dedicated Training Center Highlight Banner */}
+                <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50/80 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-white">
+                      <GraduationCap className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-display text-sm font-bold text-slate-900 sm:text-base">
+                        তিন মাসে হয়ে উঠুন একজন দক্ষ টেকনিশিয়ান
+                      </h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-700">
+                        দক্ষ টেকনিশিয়ান দ্বারা বাটন ও স্মার্টফোনের হার্ডওয়্যার
+                        রিপেয়ারিং, আইসি কাজ ও সফটওয়্যার ফ্ল্যাশিংয়ের হাতে-কলমে
+                        প্র্যাকটিক্যাল ট্রেনিং দেওয়া হয়। ভর্তি ও তথ্যের জন্য
+                        আসুন{' '}
+                        <span className="font-semibold text-slate-900">
+                          {resolvedAddress}
+                        </span>{' '}
+                        অথবা কল করুন{' '}
+                        <a
+                          href="tel:01738266366"
+                          className="font-mono font-bold text-sky-700 underline"
+                        >
+                          01738266366
+                        </a>
+                        ।
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
                 <div className="mt-5 grid grid-cols-1 gap-4 border-y border-slate-200 py-4 sm:grid-cols-2">
                   <div>
                     <p className="text-xs font-medium text-slate-500">
-                      সরাসরি যোগাযোগ নম্বর
+                      সরাসরি যোগাযোগ নম্বর ও ঠিকানা
                     </p>
                     <a
                       href="tel:01738266366"
@@ -800,17 +845,15 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                     <p className="mt-1 text-xs text-slate-500">
                       কল এবং হোয়াটসঅ্যাপ সাপোর্ট চালু আছে
                     </p>
-                    {siteSettings.shopAddress && (
-                      <p className="mt-2 flex items-start gap-1.5 text-xs text-slate-700">
-                        <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
-                        <span>{siteSettings.shopAddress}</span>
-                      </p>
-                    )}
+                    <p className="mt-2 flex items-start gap-1.5 text-xs font-medium text-slate-800">
+                      <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
+                      <span>{resolvedAddress}</span>
+                    </p>
                   </div>
 
                   <div>
                     <p className="text-xs font-medium text-slate-500">
-                      দোকানের সময়সূচী ও সার্ভিসিং
+                      দোকানের সময়সূচী ও সেবাসমূহ
                     </p>
                     <div
                       className={`mt-1.5 inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold ${
@@ -832,9 +875,9 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                       </p>
                     )}
                     <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                      <li>ফার্মওয়্যার ফ্ল্যাশিং, আনব্রিক ও IMEI/বেসব্যান্ড সমাধান</li>
-                      <li>FRP, MDM এবং কান্ট্রি নেটওয়ার্ক আনলকিং</li>
-                      <li>হার্ডওয়্যার আইসি, চার্জিং ও ডিসপ্লে সার্ভিসিং</li>
+                      <li>বাটন ও স্মার্টফোন ফ্ল্যাশিং, আনব্রিক ও IMEI সমাধান</li>
+                      <li>হার্ডওয়্যার আইসি, চার্জিং, নেটওয়ার্ক ও ডিসপ্লে সার্ভিসিং</li>
+                      <li>৩ মাসে দক্ষ টেকনিশিয়ান গড়ার প্র্যাকটিক্যাল প্রশিক্ষণ</li>
                     </ul>
                   </div>
                 </div>
@@ -847,7 +890,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
               >
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="font-display text-sm font-semibold text-slate-900">
-                    হোয়াটসঅ্যাপে যেকোনো মডেলের ফাইল রিকোয়েস্ট করুন
+                    হোয়াটসঅ্যাপে যেকোনো মডেলের ফাইল রিকোয়েস্ট বা ট্রেনিং তথ্য নিন
                   </h3>
                   <span className="font-mono text-xs text-slate-500">
                     01738266366
@@ -856,14 +899,14 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
                   <input
                     type="text"
-                    placeholder="ব্র্যান্ড (যেমন: Oppo)"
+                    placeholder="ব্র্যান্ড / বিষয় (যেমন: Oppo বা ট্রেনিং)"
                     value={reqBrand}
                     onChange={(e) => setReqBrand(e.target.value)}
                     className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none"
                   />
                   <input
                     type="text"
-                    placeholder="মডেল (যেমন: CPH2477)"
+                    placeholder="মডেল বা নাম (যেমন: CPH2477)"
                     value={reqModel}
                     onChange={(e) => setReqModel(e.target.value)}
                     required
@@ -871,7 +914,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                   />
                   <input
                     type="text"
-                    placeholder="কী ফাইল লাগবে (Firmware/FRP)"
+                    placeholder="সমস্যা বা ফাইলের বিবরণ"
                     value={reqNote}
                     onChange={(e) => setReqNote(e.target.value)}
                     className="rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none"
@@ -883,7 +926,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                     className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     <MessageSquare className="h-3.5 w-3.5" />
-                    <span>ফাইল রিকোয়েস্ট পাঠান</span>
+                    <span>হোয়াটসঅ্যাপে বার্তা পাঠান</span>
                   </button>
                 </div>
               </form>
@@ -897,18 +940,16 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                 <div className="flex items-center gap-2">
                   <MapPin className="h-4 w-4 text-sky-600" />
                   <h3 className="font-display text-base font-bold text-slate-900">
-                    আমাদের দোকানের গুগল ম্যাপ লোকেশন
+                    আমাদের সার্ভিসিং ও ট্রেনিং সেন্টারের গুগল ম্যাপ লোকেশন
                   </h3>
                 </div>
-                {siteSettings.shopAddress && (
-                  <p className="text-xs text-slate-600">
-                    {siteSettings.shopAddress}
-                  </p>
-                )}
+                <p className="text-xs font-medium text-slate-600">
+                  {resolvedAddress}
+                </p>
               </div>
               <ShopMapSection
                 shopName={siteSettings.shopName}
-                shopAddress={siteSettings.shopAddress}
+                shopAddress={resolvedAddress}
                 lat={siteSettings.shopLat}
                 lng={siteSettings.shopLng}
                 pinSet={siteSettings.shopPinSet}

@@ -650,7 +650,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
             <span className="font-medium text-slate-900">
-              জননী টেলিকম এন্ড সার্ভিসিং সেন্টার
+              জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার
             </span>
             -এর অনুমোদিত গুগল অ্যাকাউন্ট দিয়ে সাইন ইন করে ফাইল আপলোড,
             ভিজিটর ট্র্যাকিং, শপ গুগল ম্যাপ ও হেডার সেটিংস পরিচালনা করুন।
@@ -796,7 +796,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               {user.email}
             </span>{' '}
             অ্যাকাউন্ট দিয়ে সাইন ইন করেছেন, কিন্তু এই অ্যাকাউন্টে জননী টেলিকম
-            এন্ড সার্ভিসিং সেন্টারের অ্যাডমিন অনুমতি নেই।
+            অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টারের অ্যাডমিন অনুমতি নেই।
           </p>
           <div className="mt-6">
             <button
@@ -828,7 +828,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-xs font-medium text-slate-500">
-            জননী টেলিকম এন্ড সার্ভিসিং সেন্টার · অ্যাডমিন কনসোল
+            জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার · অ্যাডমিন কনসোল
           </p>
           <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-slate-900">
             অ্যাডমিন ড্যাশবোর্ড ও ওয়েবসাইট নিয়ন্ত্রণ
