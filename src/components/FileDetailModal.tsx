@@ -5,10 +5,12 @@ import {
   CHIPSET_LABELS_BN,
   FlashFileRecord,
   formatBytes,
+  formatDownloadCount,
   formatPriceBn,
   formatTimestamp,
 } from '../types/flashFile';
 import { triggerDirectWebDownload } from '../lib/directDownload';
+import { incrementFlashFileDownloadCount } from '../lib/flashFilesRepo';
 import { IndeterminateProgressBar } from './IndeterminateProgressBar';
 import { LoadingSpinner } from './LoadingSpinner';
 
@@ -32,6 +34,7 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
     setDownloadError(null);
     try {
       await triggerDirectWebDownload(file.driveFileId, file.fileName);
+      void incrementFlashFileDownloadCount(file.id);
       setDownloadStarted(true);
       setTimeout(() => setDownloadStarted(false), 3000);
     } catch (err) {
@@ -117,10 +120,16 @@ export const FileDetailModal: React.FC<FileDetailModalProps> = ({
               {file.version}
             </dd>
           </div>
-          <div className="col-span-2 border-b border-slate-100 pb-2">
+          <div className="border-b border-slate-100 pb-2">
             <dt className="text-xs text-slate-500">আপলোডের তারিখ</dt>
             <dd className="mt-0.5 text-xs text-slate-900 tabular-nums">
               {formatTimestamp(file.createdAt)} · {file.uploadedByName}
+            </dd>
+          </div>
+          <div className="border-b border-slate-100 pb-2">
+            <dt className="text-xs text-slate-500">মোট ডাউনলোড</dt>
+            <dd className="mt-0.5 font-mono text-xs font-bold text-sky-700 tabular-nums">
+              {formatDownloadCount(file.downloadCount)} বার
             </dd>
           </div>
         </dl>

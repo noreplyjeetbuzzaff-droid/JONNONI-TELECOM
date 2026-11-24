@@ -75,6 +75,7 @@ export interface FlashFileRecord {
   viewUrl: string;
   notes: string;
   price?: number;
+  downloadCount?: number;
   isPublicDrive: boolean;
   uploadedByUid: string;
   uploadedByName: string;
@@ -127,6 +128,13 @@ export function formatBytes(bytes: number): string {
 export function formatPriceBn(price: number | undefined): string {
   if (!price || price <= 0) return 'ফ্রি';
   return `৳ ${new Intl.NumberFormat('en-US').format(Math.round(price))}`;
+}
+
+export function formatDownloadCount(count: number | undefined): number {
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) {
+    return 0;
+  }
+  return Math.floor(count);
 }
 
 export function formatTimestamp(ts: Timestamp | null | undefined): string {

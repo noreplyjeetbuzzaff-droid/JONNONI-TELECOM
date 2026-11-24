@@ -78,8 +78,8 @@ service cloud.firestore {
       && data.keys().hasOnly([
         'title', 'brand', 'model', 'category', 'chipset', 'version',
         'fileName', 'fileSizeBytes', 'driveFileId', 'downloadUrl',
-        'viewUrl', 'notes', 'price', 'isPublicDrive', 'uploadedByUid',
-        'uploadedByName', 'createdAt', 'updatedAt'
+        'viewUrl', 'notes', 'price', 'downloadCount', 'isPublicDrive',
+        'uploadedByUid', 'uploadedByName', 'createdAt', 'updatedAt'
       ])
       && data.title is string && data.title.size() >= 2 && data.title.size() <= 160
       && data.brand is string && data.brand.size() >= 1 && data.brand.size() <= 50
@@ -94,6 +94,7 @@ service cloud.firestore {
       && data.viewUrl is string && data.viewUrl.size() >= 10 && data.viewUrl.size() <= 400 && data.viewUrl.matches('^https://.*')
       && data.notes is string && data.notes.size() <= 1000
       && (!('price' in data) || (data.price is number && data.price >= 0 && data.price <= 1000000))
+      && (!('downloadCount' in data) || (data.downloadCount is int && data.downloadCount >= 0 && data.downloadCount <= 100000000))
       && data.isPublicDrive is bool
       && data.uploadedByUid is string && isValidId(data.uploadedByUid)
       && data.uploadedByName is string && data.uploadedByName.size() >= 1 && data.uploadedByName.size() <= 80
@@ -190,17 +191,29 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
 
-      allow update: if isAdmin()
-        && isValidId(fileId)
+      allow update: if isValidId(fileId)
         && isValidFlashFile(incoming())
-        && incoming().diff(existing()).affectedKeys().hasOnly([
-          'title', 'brand', 'model', 'category', 'chipset',
-          'version', 'notes', 'price', 'isPublicDrive', 'updatedAt'
-        ])
-        && incoming().uploadedByUid == existing().uploadedByUid
-        && incoming().driveFileId == existing().driveFileId
-        && incoming().createdAt == existing().createdAt
-        && incoming().updatedAt == request.time;
+        && (
+          (
+            isAdmin()
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'brand', 'model', 'category', 'chipset',
+              'version', 'notes', 'price', 'isPublicDrive', 'updatedAt'
+            ])
+            && incoming().uploadedByUid == existing().uploadedByUid
+            && incoming().driveFileId == existing().driveFileId
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+          )
+          || (
+            existing().isPublicDrive == true
+            && incoming().diff(existing()).affectedKeys().hasOnly(['downloadCount'])
+            && (
+              ('downloadCount' in existing() && existing().downloadCount is int && incoming().downloadCount == existing().downloadCount + 1)
+              || (!('downloadCount' in existing()) && incoming().downloadCount == 1)
+            )
+          )
+        );
 
       allow delete: if isAdmin() && isValidId(fileId);
     }

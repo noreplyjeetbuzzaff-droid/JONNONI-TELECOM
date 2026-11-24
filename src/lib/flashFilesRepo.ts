@@ -3,6 +3,7 @@ import {
   deleteDoc,
   doc,
   getDoc,
+  increment,
   onSnapshot,
   query,
   serverTimestamp,
@@ -147,6 +148,7 @@ export async function createFlashFileRecord(
     viewUrl: sanitizeText(input.viewUrl, 400),
     notes: sanitizeText(input.notes, 1000),
     price: sanitizePrice(input.price),
+    downloadCount: 0,
     isPublicDrive: Boolean(input.isPublicDrive),
     uploadedByUid: sanitizeText(input.uploadedByUid, 128),
     uploadedByName: sanitizeText(input.uploadedByName, 80) || 'Admin',
@@ -195,6 +197,19 @@ export async function updateFlashFileRecord(
     await updateDoc(doc(db, COLLECTION_NAME, id), payload);
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function incrementFlashFileDownloadCount(
+  id: string
+): Promise<void> {
+  if (!ID_REGEX.test(id)) return;
+  try {
+    await updateDoc(doc(db, COLLECTION_NAME, id), {
+      downloadCount: increment(1),
+    });
+  } catch {
+    // Non-blocking counter increment so downloads are never interrupted
   }
 }
 

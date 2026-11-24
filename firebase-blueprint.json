@@ -92,6 +92,10 @@
           "type": "number",
           "description": "Price in BDT (0 means free download)."
         },
+        "downloadCount": {
+          "type": "number",
+          "description": "Total number of times visitors initiated a download of this file."
+        },
         "isPublicDrive": {
           "type": "boolean",
           "description": "Whether the file is publicly downloadable by visitors."

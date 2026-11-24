@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Clock,
@@ -7,6 +7,7 @@ import {
   FileCode2,
   GraduationCap,
   HardDrive,
+  History,
   Info,
   MapPin,
   Megaphone,
@@ -24,14 +25,14 @@ import {
   FILE_CATEGORIES,
   FlashFileRecord,
   formatBytes,
+  formatDownloadCount,
   formatPriceBn,
   formatTimestamp,
 } from '../types/flashFile';
 import { getContrastTextColor, SiteSettings } from '../types/siteSettings';
-import { triggerDirectWebDownload } from '../lib/directDownload';
 import { trackVisitorEvent } from '../lib/analyticsClient';
+import { DownloadConfirmModal } from './DownloadConfirmModal';
 import { FileDetailModal } from './FileDetailModal';
-import { IndeterminateProgressBar } from './IndeterminateProgressBar';
 import { LoadingSpinner } from './LoadingSpinner';
 import { ShopMapSection } from './ShopMapSection';
 import { ServicingGuideSection } from './ServicingGuideSection';
@@ -49,6 +50,40 @@ interface PublicCatalogProps {
 
 const YOUTUBE_BANNER_SRC = youtubeBannerImg;
 const BENCH_IMAGE_SRC = benchImageImg;
+const SEARCH_HISTORY_STORAGE_KEY = 'jt_search_history_v1';
+const MAX_SEARCH_HISTORY = 5;
+
+function loadSearchHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    const cleaned: string[] = [];
+    for (const item of parsed) {
+      if (typeof item !== 'string') continue;
+      const trimmed = item.trim().slice(0, 60);
+      if (
+        trimmed.length >= 2 &&
+        !cleaned.some((c) => c.toLowerCase() === trimmed.toLowerCase())
+      ) {
+        cleaned.push(trimmed);
+      }
+      if (cleaned.length >= MAX_SEARCH_HISTORY) break;
+    }
+    return cleaned;
+  } catch {
+    return [];
+  }
+}
+
+function persistSearchHistory(items: string[]): void {
+  try {
+    localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // Ignore storage quota or private-mode errors
+  }
+}
 
 export const PublicCatalog: React.FC<PublicCatalogProps> = ({
   files,
@@ -58,31 +93,53 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
   onOpenAdmin,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchHistory, setSearchHistory] = useState<string[]>(() =>
+    loadSearchHistory()
+  );
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [selectedBrand, setSelectedBrand] = useState<string>('All');
   const [selectedChipset, setSelectedChipset] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'newest' | 'model' | 'size'>('newest');
   const [detailFile, setDetailFile] = useState<FlashFileRecord | null>(null);
+  const [confirmDownloadFile, setConfirmDownloadFile] =
+    useState<FlashFileRecord | null>(null);
 
   const [bannerImgError, setBannerImgError] = useState(false);
   const [benchImgError, setBenchImgError] = useState(false);
 
-  // Per-post direct download spinner & feedback
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // Recent download initiated feedback on card
   const [startedId, setStartedId] = useState<string | null>(null);
-  const [downloadErr, setDownloadErr] = useState<string | null>(null);
 
   // WhatsApp file request mini-form
   const [reqBrand, setReqBrand] = useState('');
   const [reqModel, setReqModel] = useState('');
   const [reqNote, setReqNote] = useState('');
 
-  // Debounced search visitor tracking
+  const recordSearchHistory = useCallback((term: string) => {
+    const clean = term.trim().slice(0, 60);
+    if (clean.length < 2) return;
+    setSearchHistory((prev) => {
+      const next = [
+        clean,
+        ...prev.filter((item) => item.toLowerCase() !== clean.toLowerCase()),
+      ].slice(0, MAX_SEARCH_HISTORY);
+      persistSearchHistory(next);
+      return next;
+    });
+  }, []);
+
+  const handleClearSearchHistory = useCallback(() => {
+    setSearchHistory([]);
+    persistSearchHistory([]);
+  }, []);
+
+  // Debounced search visitor tracking + save to localStorage search history
   const lastTrackedSearchRef = useRef('');
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (trimmed.length < 2) return;
     const timer = setTimeout(() => {
+      recordSearchHistory(trimmed);
       if (lastTrackedSearchRef.current !== trimmed) {
         lastTrackedSearchRef.current = trimmed;
         trackVisitorEvent({
@@ -93,7 +150,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
       }
     }, 900);
     return () => clearTimeout(timer);
-  }, [searchQuery]);
+  }, [searchQuery, recordSearchHistory]);
 
   const availableBrands = useMemo(() => {
     const set = new Set<string>();
@@ -176,25 +233,29 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
     setSelectedChipset('All');
   };
 
-  const handleDirectDownload = async (file: FlashFileRecord) => {
-    setDownloadingId(file.id);
-    setDownloadErr(null);
-    try {
-      await triggerDirectWebDownload(file.driveFileId, file.fileName);
-      setStartedId(file.id);
-      setTimeout(() => {
-        setStartedId((curr) => (curr === file.id ? null : curr));
-      }, 2800);
-    } catch (err) {
-      setDownloadErr(
-        err instanceof Error
-          ? err.message
-          : 'ডাউনলোড শুরু করতে সমস্যা হয়েছে।'
-      );
-    } finally {
-      setDownloadingId(null);
-    }
-  };
+  const handleDownloadStartedFeedback = useCallback((fileId: string) => {
+    setStartedId(fileId);
+    setTimeout(() => {
+      setStartedId((curr) => (curr === fileId ? null : curr));
+    }, 2800);
+  }, []);
+
+  const activeDetailFile = useMemo(
+    () =>
+      detailFile
+        ? files.find((f) => f.id === detailFile.id) || detailFile
+        : null,
+    [files, detailFile]
+  );
+
+  const activeConfirmDownloadFile = useMemo(
+    () =>
+      confirmDownloadFile
+        ? files.find((f) => f.id === confirmDownloadFile.id) ||
+          confirmDownloadFile
+        : null,
+    [files, confirmDownloadFile]
+  );
 
   const handleWhatsAppRequest = (e: React.FormEvent) => {
     e.preventDefault();
@@ -368,6 +429,46 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
         {/* Search & Filter Panel */}
         <div className="card-3d mt-5 rounded-xl border border-slate-200 bg-white p-3.5 sm:p-5">
+          {/* LocalStorage Recent Search History (Last 5 Model Names) Above Search Bar */}
+          {searchHistory.length > 0 && (
+            <div
+              className="mb-3 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3"
+              aria-label="সাম্প্রতিক সার্চ করা মডেলসমূহ"
+            >
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 whitespace-nowrap shrink-0">
+                <History className="h-3.5 w-3.5 text-sky-600" />
+                <span>সাম্প্রতিক সার্চ:</span>
+              </span>
+              <ul className="flex flex-wrap items-center gap-1.5">
+                {searchHistory.map((term) => (
+                  <li key={term}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery(term);
+                        recordSearchHistory(term);
+                      }}
+                      className={`inline-flex items-center rounded-md border px-2.5 py-1 font-mono text-xs font-medium transition-colors cursor-pointer ${
+                        searchQuery.trim().toLowerCase() === term.toLowerCase()
+                          ? 'border-sky-500 bg-sky-50 text-sky-900'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-sky-300 hover:bg-sky-50/70 hover:text-sky-800'
+                      }`}
+                    >
+                      {term}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                onClick={handleClearSearchHistory}
+                className="ml-auto text-[11px] font-medium text-slate-400 hover:text-slate-700 underline underline-offset-2 whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                ইতিহাস মুছুন
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
             {/* Search Input */}
             <div className="relative lg:col-span-6">
@@ -376,6 +477,11 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    recordSearchHistory(searchQuery);
+                  }
+                }}
                 placeholder="মডেল (SM-A546E, RMX3710), ব্র্যান্ড বা টুলের নাম..."
                 aria-label="মডেল, ব্র্যান্ড বা টুলের নাম দিয়ে ফাইল খুঁজুন"
                 className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2.5 pl-10 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:bg-white focus:outline-none focus:ring-2 focus:ring-sky-600/20"
@@ -489,21 +595,6 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
           </div>
         </div>
 
-        {/* Download Error Alert */}
-        {downloadErr && (
-          <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700 sm:text-sm">
-            <span>{downloadErr}</span>
-            <button
-              type="button"
-              onClick={() => setDownloadErr(null)}
-              className="rounded p-1 hover:bg-red-100 cursor-pointer"
-              aria-label="সতর্কতা বন্ধ করুন"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        )}
-
         {/* Catalog Error */}
         {error && (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-5 py-3.5 text-sm text-red-700">
@@ -558,9 +649,9 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
           ) : (
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
               {filteredFiles.map((file) => {
-                const isBusy = downloadingId === file.id;
                 const isDone = startedId === file.id;
                 const isPaid = Boolean(file.price && file.price > 0);
+                const dlCount = formatDownloadCount(file.downloadCount);
 
                 return (
                   <article
@@ -631,6 +722,14 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                           {formatBytes(file.fileSizeBytes)}
                         </span>
                         <span aria-hidden="true"> · </span>
+                        <span>
+                          ডাউনলোড:{' '}
+                          <span className="font-mono font-semibold text-slate-800">
+                            {dlCount}
+                          </span>{' '}
+                          বার
+                        </span>
+                        <span aria-hidden="true"> · </span>
                         <span>{formatTimestamp(file.createdAt)}</span>
                       </p>
 
@@ -641,8 +740,8 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                       )}
                     </div>
 
-                    {/* Card Footer: Mobile-friendly >=44px touch targets + indeterminate progress */}
-                    <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-3.5">
+                    {/* Card Footer: Opens Confirmation Modal instead of immediate download */}
+                    <div className="mt-4 border-t border-slate-100 pt-3.5">
                       <div className="flex items-center gap-2.5">
                         <button
                           type="button"
@@ -655,16 +754,15 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleDirectDownload(file)}
-                          disabled={isBusy}
-                          className="btn-3d-primary inline-flex min-h-[44px] sm:min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700 transition-colors cursor-pointer disabled:opacity-80"
+                          onClick={() => {
+                            if (searchQuery.trim().length >= 2) {
+                              recordSearchHistory(searchQuery);
+                            }
+                            setConfirmDownloadFile(file);
+                          }}
+                          className="btn-3d-primary inline-flex min-h-[44px] sm:min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-lg bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700 transition-colors cursor-pointer"
                         >
-                          {isBusy ? (
-                            <LoadingSpinner
-                              size="sm"
-                              label="ডাউনলোড হচ্ছে..."
-                            />
-                          ) : isDone ? (
+                          {isDone ? (
                             <>
                               <Check className="h-4 w-4" />
                               <span>ডাউনলোড শুরু হয়েছে</span>
@@ -675,17 +773,12 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                               <span>
                                 {isPaid
                                   ? `ডাউনলোড (${formatPriceBn(file.price)})`
-                                  : 'সরাসরি ডাউনলোড'}
+                                  : 'ডাউনলোড'}
                               </span>
                             </>
                           )}
                         </button>
                       </div>
-
-                      <IndeterminateProgressBar
-                        active={isBusy}
-                        label="সার্ভার থেকে ফাইল যাচাই ও ডাউনলোড শুরু হচ্ছে..."
-                      />
                     </div>
                   </article>
                 );
@@ -982,8 +1075,14 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
       />
 
       <FileDetailModal
-        file={detailFile}
+        file={activeDetailFile}
         onClose={() => setDetailFile(null)}
+      />
+
+      <DownloadConfirmModal
+        file={activeConfirmDownloadFile}
+        onClose={() => setConfirmDownloadFile(null)}
+        onDownloadStarted={handleDownloadStartedFeedback}
       />
     </div>
   );
