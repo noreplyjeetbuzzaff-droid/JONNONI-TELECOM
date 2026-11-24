@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { LoadingSpinner } from './LoadingSpinner';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -87,7 +88,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 : 'bg-sky-600 hover:bg-sky-700'
             }`}
           >
-            {busy ? 'অপেক্ষা করুন...' : confirmLabel}
+            {busy ? (
+              <LoadingSpinner size="sm" label="অপেক্ষা করুন..." />
+            ) : (
+              confirmLabel
+            )}
           </button>
         </div>
       </div>

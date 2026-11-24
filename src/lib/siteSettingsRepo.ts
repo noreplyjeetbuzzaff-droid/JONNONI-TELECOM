@@ -9,6 +9,7 @@ import { db, handleFirestoreError, OperationType } from './firebase';
 import {
   DEFAULT_SITE_SETTINGS,
   HeaderBgTheme,
+  isValidHexColor,
   SiteSettings,
 } from '../types/siteSettings';
 
@@ -96,6 +97,20 @@ function normalizeSiteSettings(raw: Record<string, unknown> | undefined): SiteSe
       rawSeoKw !== '' && rawSeoKw !== LEGACY_DEFAULT_SEO_KEYWORDS
         ? rawSeoKw.slice(0, 500)
         : DEFAULT_SITE_SETTINGS.seoKeywords,
+    tickerBgColor:
+      typeof raw.tickerBgColor === 'string' && isValidHexColor(raw.tickerBgColor)
+        ? raw.tickerBgColor.trim().toLowerCase()
+        : DEFAULT_SITE_SETTINGS.tickerBgColor,
+    tickerBorderColor:
+      typeof raw.tickerBorderColor === 'string' &&
+      isValidHexColor(raw.tickerBorderColor)
+        ? raw.tickerBorderColor.trim().toLowerCase()
+        : DEFAULT_SITE_SETTINGS.tickerBorderColor,
+    tickerBadgeBgColor:
+      typeof raw.tickerBadgeBgColor === 'string' &&
+      isValidHexColor(raw.tickerBadgeBgColor)
+        ? raw.tickerBadgeBgColor.trim().toLowerCase()
+        : DEFAULT_SITE_SETTINGS.tickerBadgeBgColor,
   };
 }
 
@@ -173,6 +188,15 @@ export async function saveSiteSettings(
     adsenseSlotBottom: cleanSlotBottom,
     seoDescription: (settings.seoDescription || '').trim().slice(0, 320),
     seoKeywords: (settings.seoKeywords || '').trim().slice(0, 500),
+    tickerBgColor: isValidHexColor(settings.tickerBgColor || '')
+      ? settings.tickerBgColor.trim().toLowerCase()
+      : DEFAULT_SITE_SETTINGS.tickerBgColor,
+    tickerBorderColor: isValidHexColor(settings.tickerBorderColor || '')
+      ? settings.tickerBorderColor.trim().toLowerCase()
+      : DEFAULT_SITE_SETTINGS.tickerBorderColor,
+    tickerBadgeBgColor: isValidHexColor(settings.tickerBadgeBgColor || '')
+      ? settings.tickerBadgeBgColor.trim().toLowerCase()
+      : DEFAULT_SITE_SETTINGS.tickerBadgeBgColor,
     updatedAt: serverTimestamp(),
     updatedByUid: uid,
   };

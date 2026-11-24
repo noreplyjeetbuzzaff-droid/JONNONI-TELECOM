@@ -27,7 +27,7 @@ import {
   formatPriceBn,
   formatTimestamp,
 } from '../types/flashFile';
-import { SiteSettings } from '../types/siteSettings';
+import { getContrastTextColor, SiteSettings } from '../types/siteSettings';
 import { triggerDirectWebDownload } from '../lib/directDownload';
 import { trackVisitorEvent } from '../lib/analyticsClient';
 import { FileDetailModal } from './FileDetailModal';
@@ -300,17 +300,31 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
       {/* Scrolling News Heading Text (News Ticker) */}
       <div
-        className="border-y border-slate-800 bg-slate-900 text-white"
+        className="border-y-2 transition-colors duration-200"
+        style={{
+          backgroundColor: siteSettings.tickerBgColor || '#0f172a',
+          borderTopColor: siteSettings.tickerBorderColor || '#0284c7',
+          borderBottomColor: siteSettings.tickerBorderColor || '#0284c7',
+          color: getContrastTextColor(siteSettings.tickerBgColor || '#0f172a'),
+        }}
         role="region"
         aria-label="সর্বশেষ সংবাদ ও আপডেট"
       >
         <div className="mx-auto flex max-w-7xl items-center overflow-hidden">
-          <div className="z-10 flex items-center gap-1 bg-sky-600 px-2 py-1 text-[10px] font-bold text-white whitespace-nowrap shrink-0 sm:gap-1.5 sm:px-2.5 sm:py-1.5 sm:text-[11px]">
+          <div
+            className="z-10 flex items-center gap-1 px-2 py-1 text-[10px] font-bold whitespace-nowrap shrink-0 transition-colors duration-200 sm:gap-1.5 sm:px-2.5 sm:py-1.5 sm:text-[11px]"
+            style={{
+              backgroundColor: siteSettings.tickerBadgeBgColor || '#0284c7',
+              color: getContrastTextColor(
+                siteSettings.tickerBadgeBgColor || '#0284c7'
+              ),
+            }}
+          >
             <Megaphone className="h-3 w-3 shrink-0" />
             <span>সর্বশেষ আপডেট</span>
           </div>
           <div className="relative flex-1 overflow-hidden py-1 sm:py-1.5">
-            <div className="animate-news-marquee text-xs font-medium text-slate-100 sm:text-sm">
+            <div className="animate-news-marquee text-xs font-medium sm:text-sm">
               <span className="px-5 whitespace-nowrap">{tickerText}</span>
               <span className="px-5 whitespace-nowrap" aria-hidden="true">
                 {tickerText}
@@ -500,15 +514,13 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
         {/* Unique 3D Post Cards Grid / Loading Spinner / Empty State */}
         <div className="mt-6">
           {loading ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200 bg-white px-6 py-16 text-center">
+            <div className="card-3d rounded-xl border border-slate-200 bg-white px-6 py-16">
               <LoadingSpinner
+                variant="card"
                 size="lg"
                 label="ফাইল ক্যাটালগ লোড হচ্ছে..."
-                className="text-sky-600 text-sm font-semibold"
+                sublabel="শতভাগ পরীক্ষিত ফ্লাশ ফাইল তালিকা প্রস্তুত হচ্ছে — অনুগ্রহ করে অপেক্ষা করুন"
               />
-              <p className="mt-2 text-xs text-slate-500">
-                অনুগ্রহ করে কিছুক্ষণ অপেক্ষা করুন
-              </p>
             </div>
           ) : filteredFiles.length === 0 ? (
             <div className="card-3d rounded-xl border border-slate-200 bg-white px-6 py-14 text-center">

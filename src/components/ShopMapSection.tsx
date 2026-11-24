@@ -13,6 +13,7 @@ import {
   useApiLoadingStatus,
 } from '@vis.gl/react-google-maps';
 import { ExternalLink, MapPin, Navigation, Phone } from 'lucide-react';
+import { LoadingSpinner } from './LoadingSpinner';
 
 interface ShopMapSectionProps {
   shopName: string;
@@ -56,14 +57,30 @@ const EmbeddedGoogleMapFallback: React.FC<{
     mapQuery
   )}&z=${effectiveZoom}&hl=bn&output=embed`;
 
+  const [iframeLoaded, setIframeLoaded] = useState(false);
+
+  useEffect(() => {
+    setIframeLoaded(false);
+  }, [embedSrc]);
+
   return (
     <div
       className={`relative ${heightClassName} min-h-[288px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100`}
     >
+      {!iframeLoaded && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-slate-100/90">
+          <LoadingSpinner
+            variant="card"
+            size="md"
+            label="গুগল ম্যাপ লোড হচ্ছে..."
+          />
+        </div>
+      )}
       <iframe
         title={`${shopName} — Google Map`}
         src={embedSrc}
         loading="lazy"
+        onLoad={() => setIframeLoaded(true)}
         referrerPolicy="no-referrer-when-downgrade"
         className="h-full w-full border-0"
         allowFullScreen
@@ -134,6 +151,21 @@ const MapLoadingGuard: React.FC<{
         editable={editable}
         heightClassName={heightClassName}
       />
+    );
+  }
+
+  if (status === APILoadingStatus.LOADING) {
+    return (
+      <div className="relative h-full min-h-[288px] w-full">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-slate-100/80">
+          <LoadingSpinner
+            variant="card"
+            size="md"
+            label="গুগল ম্যাপ লোড হচ্ছে..."
+          />
+        </div>
+        {children}
+      </div>
     );
   }
 

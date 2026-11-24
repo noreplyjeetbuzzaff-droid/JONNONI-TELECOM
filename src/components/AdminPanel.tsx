@@ -16,11 +16,13 @@ import {
   Lock,
   LogOut,
   MapPin,
+  Megaphone,
   Monitor,
   Palette,
   Pencil,
   Radio,
   RefreshCw,
+  RotateCcw,
   Save,
   Search,
   Settings,
@@ -46,9 +48,13 @@ import {
   UpdateFlashFileInput,
 } from '../types/flashFile';
 import {
+  DEFAULT_SITE_SETTINGS,
+  getContrastTextColor,
   HEADER_THEME_META,
   HeaderBgTheme,
+  isValidHexColor,
   SiteSettings,
+  TICKER_COLOR_PRESETS,
   VisitorSummary,
 } from '../types/siteSettings';
 import {
@@ -173,6 +179,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
   const [locatingGps, setLocatingGps] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const isBootstrapped = isBootstrappedAdminEmail(user?.email);
 
@@ -573,7 +580,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       const idToken = await user.getIdToken();
       await saveSiteSettings(user.uid, draftSettings, idToken);
       setSettingsSuccess(
-        'শপ ম্যাপ, হেডার কালার ও AdSense সেটিংস সফলভাবে সংরক্ষণ করা হয়েছে।'
+        'শপ ম্যাপ, হেডার কালার, সর্বশেষ আপডেট বর্ডার/ব্যাকগ্রাউন্ড কালার ও AdSense সেটিংস সফলভাবে সংরক্ষণ করা হয়েছে।'
       );
     } catch (err) {
       setSettingsError(
@@ -847,14 +854,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 : 'border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
             }`}
           >
-            <Clock className="h-3.5 w-3.5" />
-            <span>
-              {togglingShop24h
-                ? 'আপডেট হচ্ছে...'
-                : siteSettings.shopOpen24Hours
-                  ? 'শপ: ২৪ ঘণ্টা খোলা (ON)'
-                  : 'শপ: বন্ধ (OFF)'}
-            </span>
+            {togglingShop24h ? (
+              <LoadingSpinner size="xs" label="আপডেট হচ্ছে..." />
+            ) : (
+              <>
+                <Clock className="h-3.5 w-3.5" />
+                <span>
+                  {siteSettings.shopOpen24Hours
+                    ? 'শপ: ২৪ ঘণ্টা খোলা (ON)'
+                    : 'শপ: বন্ধ (OFF)'}
+                </span>
+              </>
+            )}
           </button>
 
           <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700">
@@ -865,11 +876,25 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
           <button
             type="button"
-            onClick={onLogout}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+            disabled={loggingOut}
+            onClick={async () => {
+              setLoggingOut(true);
+              try {
+                await onLogout();
+              } finally {
+                setLoggingOut(false);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-60"
           >
-            <LogOut className="h-3.5 w-3.5" />
-            <span>সাইন আউট</span>
+            {loggingOut ? (
+              <LoadingSpinner size="xs" label="সাইন আউট হচ্ছে..." />
+            ) : (
+              <>
+                <LogOut className="h-3.5 w-3.5" />
+                <span>সাইন আউট</span>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -2030,10 +2055,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   disabled={locatingGps}
                   className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100 cursor-pointer disabled:opacity-60"
                 >
-                  <Compass className="h-4 w-4 text-sky-600" />
-                  <span>
-                    {locatingGps ? 'খুঁজছে...' : 'GPS অবস্থান নিন'}
-                  </span>
+                  {locatingGps ? (
+                    <LoadingSpinner size="xs" label="GPS খুঁজছে..." />
+                  ) : (
+                    <>
+                      <Compass className="h-4 w-4 text-sky-600" />
+                      <span>GPS অবস্থান নিন</span>
+                    </>
+                  )}
                 </button>
               </div>
 
@@ -2110,6 +2139,234 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       );
                     }
                   )}
+                </div>
+              </div>
+
+              {/* Latest Update Border & Background Color Selector */}
+              <div className="card-3d rounded-xl border border-slate-200 bg-white p-5 sm:p-6 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Megaphone className="h-5 w-5 text-sky-600" />
+                      <h2 className="font-display text-base font-bold text-slate-900">
+                        সর্বশেষ আপডেট বর্ডার ও ব্যাকগ্রাউন্ড কালার
+                      </h2>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      ওয়েবসাইটের চলমান &quot;সর্বশেষ আপডেট&quot; বারের
+                      ব্যাকগ্রাউন্ড, উপরের/নিচের বর্ডার ও ব্যাজ রঙ পরিবর্তন করুন।
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDraftSettings((prev) => ({
+                        ...prev,
+                        tickerBgColor: DEFAULT_SITE_SETTINGS.tickerBgColor,
+                        tickerBorderColor:
+                          DEFAULT_SITE_SETTINGS.tickerBorderColor,
+                        tickerBadgeBgColor:
+                          DEFAULT_SITE_SETTINGS.tickerBadgeBgColor,
+                      }))
+                    }
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50 cursor-pointer shrink-0"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    <span>ডিফল্ট</span>
+                  </button>
+                </div>
+
+                {/* Live Preview of News Ticker */}
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                  <p className="mb-1.5 text-[11px] font-medium text-slate-500">
+                    লাইভ প্রিভিউ:
+                  </p>
+                  <div
+                    className="flex items-center overflow-hidden rounded border-y-2 transition-colors duration-150"
+                    style={{
+                      backgroundColor: draftSettings.tickerBgColor,
+                      borderTopColor: draftSettings.tickerBorderColor,
+                      borderBottomColor: draftSettings.tickerBorderColor,
+                      color: getContrastTextColor(draftSettings.tickerBgColor),
+                    }}
+                  >
+                    <span
+                      className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold whitespace-nowrap shrink-0"
+                      style={{
+                        backgroundColor: draftSettings.tickerBadgeBgColor,
+                        color: getContrastTextColor(
+                          draftSettings.tickerBadgeBgColor
+                        ),
+                      }}
+                    >
+                      <Megaphone className="h-3 w-3" />
+                      <span>সর্বশেষ আপডেট</span>
+                    </span>
+                    <span className="truncate px-3 py-1 text-[11px] font-medium">
+                      সকল ধরনের বাটন ও স্মার্টফোনের শতভাগ পরীক্ষিত ফ্লাশ ফাইল...
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div>
+                  <p className="mb-2 text-xs font-medium text-slate-700">
+                    দ্রুত কালার প্রিসেট বেছে নিন:
+                  </p>
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {TICKER_COLOR_PRESETS.map((preset) => {
+                      const active =
+                        draftSettings.tickerBgColor.toLowerCase() ===
+                          preset.tickerBgColor &&
+                        draftSettings.tickerBorderColor.toLowerCase() ===
+                          preset.tickerBorderColor;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() =>
+                            setDraftSettings((prev) => ({
+                              ...prev,
+                              tickerBgColor: preset.tickerBgColor,
+                              tickerBorderColor: preset.tickerBorderColor,
+                              tickerBadgeBgColor: preset.tickerBadgeBgColor,
+                            }))
+                          }
+                          className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-2 text-left text-[11px] font-semibold transition-colors cursor-pointer ${
+                            active
+                              ? 'border-sky-600 bg-sky-50 text-sky-950'
+                              : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="h-5 w-7 shrink-0 rounded border-2"
+                              style={{
+                                backgroundColor: preset.tickerBgColor,
+                                borderColor: preset.tickerBorderColor,
+                              }}
+                              aria-hidden="true"
+                            />
+                            <span className="truncate">{preset.labelBn}</span>
+                          </span>
+                          {active && (
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-sky-600" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Custom Color Pickers */}
+                <div className="grid grid-cols-1 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-700">
+                      ব্যাকগ্রাউন্ড কালার
+                    </label>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        aria-label="সর্বশেষ আপডেট ব্যাকগ্রাউন্ড কালার"
+                        value={
+                          isValidHexColor(draftSettings.tickerBgColor)
+                            ? draftSettings.tickerBgColor
+                            : '#0f172a'
+                        }
+                        onChange={(e) =>
+                          setDraftSettings((prev) => ({
+                            ...prev,
+                            tickerBgColor: e.target.value,
+                          }))
+                        }
+                        className="h-9 w-10 shrink-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                      />
+                      <input
+                        type="text"
+                        maxLength={7}
+                        value={draftSettings.tickerBgColor}
+                        onChange={(e) =>
+                          setDraftSettings((prev) => ({
+                            ...prev,
+                            tickerBgColor: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-700">
+                      বর্ডার কালার
+                    </label>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        aria-label="সর্বশেষ আপডেট বর্ডার কালার"
+                        value={
+                          isValidHexColor(draftSettings.tickerBorderColor)
+                            ? draftSettings.tickerBorderColor
+                            : '#0284c7'
+                        }
+                        onChange={(e) =>
+                          setDraftSettings((prev) => ({
+                            ...prev,
+                            tickerBorderColor: e.target.value,
+                          }))
+                        }
+                        className="h-9 w-10 shrink-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                      />
+                      <input
+                        type="text"
+                        maxLength={7}
+                        value={draftSettings.tickerBorderColor}
+                        onChange={(e) =>
+                          setDraftSettings((prev) => ({
+                            ...prev,
+                            tickerBorderColor: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-700">
+                      ব্যাজ কালার
+                    </label>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <input
+                        type="color"
+                        aria-label="সর্বশেষ আপডেট ব্যাজ কালার"
+                        value={
+                          isValidHexColor(draftSettings.tickerBadgeBgColor)
+                            ? draftSettings.tickerBadgeBgColor
+                            : '#0284c7'
+                        }
+                        onChange={(e) =>
+                          setDraftSettings((prev) => ({
+                            ...prev,
+                            tickerBadgeBgColor: e.target.value,
+                          }))
+                        }
+                        className="h-9 w-10 shrink-0 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                      />
+                      <input
+                        type="text"
+                        maxLength={7}
+                        value={draftSettings.tickerBadgeBgColor}
+                        onChange={(e) =>
+                          setDraftSettings((prev) => ({
+                            ...prev,
+                            tickerBadgeBgColor: e.target.value,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-2 py-1.5 font-mono text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

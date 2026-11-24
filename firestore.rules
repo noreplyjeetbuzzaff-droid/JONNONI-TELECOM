@@ -122,6 +122,7 @@ service cloud.firestore {
         'shopPinSet', 'shopOpen24Hours', 'shopStatusNote', 'headerBgTheme',
         'adsenseEnabled', 'adsensePublisherId', 'adsenseSlotTop',
         'adsenseSlotBottom', 'seoDescription', 'seoKeywords',
+        'tickerBgColor', 'tickerBorderColor', 'tickerBadgeBgColor',
         'updatedAt', 'updatedByUid'
       ])
       && data.shopMapEnabled is bool
@@ -139,6 +140,9 @@ service cloud.firestore {
       && data.adsenseSlotBottom is string && data.adsenseSlotBottom.size() <= 30 && (data.adsenseSlotBottom == '' || data.adsenseSlotBottom.matches('^[0-9]{6,20}$'))
       && (!('seoDescription' in data) || (data.seoDescription is string && data.seoDescription.size() <= 320))
       && (!('seoKeywords' in data) || (data.seoKeywords is string && data.seoKeywords.size() <= 500))
+      && (!('tickerBgColor' in data) || (data.tickerBgColor is string && data.tickerBgColor.size() == 7 && data.tickerBgColor.matches('^#[0-9a-fA-F]{6}$')))
+      && (!('tickerBorderColor' in data) || (data.tickerBorderColor is string && data.tickerBorderColor.size() == 7 && data.tickerBorderColor.matches('^#[0-9a-fA-F]{6}$')))
+      && (!('tickerBadgeBgColor' in data) || (data.tickerBadgeBgColor is string && data.tickerBadgeBgColor.size() == 7 && data.tickerBadgeBgColor.matches('^#[0-9a-fA-F]{6}$')))
       && data.updatedAt is timestamp
       && data.updatedByUid is string && isValidId(data.updatedByUid);
     }

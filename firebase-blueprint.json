@@ -237,6 +237,27 @@
           "maxLength": 500,
           "description": "Comma-separated meta keywords synced to <meta name='keywords'>."
         },
+        "tickerBgColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Hex background color for the Latest Update news ticker bar."
+        },
+        "tickerBorderColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Hex border color for the Latest Update news ticker bar."
+        },
+        "tickerBadgeBgColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "description": "Hex background color for the Latest Update badge label."
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time"
