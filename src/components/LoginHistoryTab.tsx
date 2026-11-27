@@ -483,7 +483,13 @@ export const LoginHistoryTab: React.FC<LoginHistoryTabProps> = ({
                       </td>
                       <td className="px-4 py-3 max-w-[240px] text-[11px] text-slate-600">
                         {item.errorMessage ? (
-                          <span className="text-red-700 break-words">
+                          <span
+                            className={`break-words ${
+                              item.eventType === 'logout'
+                                ? 'text-amber-700 font-medium'
+                                : 'text-red-700'
+                            }`}
+                          >
                             {item.errorMessage}
                           </span>
                         ) : (

@@ -33,6 +33,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Smartphone,
+  Tablet,
   Trash2,
   Upload,
   Users,
@@ -83,11 +84,16 @@ import {
   uploadFileToDrive,
 } from '../lib/googleDrive';
 import {
+  checkTokenScopes,
   getEffectiveUserEmail,
   GoogleConsentMode,
   isBootstrappedAdminEmail,
   isPrimaryAdminEmail,
 } from '../lib/firebase';
+import {
+  ClientDeviceInfo,
+  detectClientDeviceInfo,
+} from '../lib/loginHistoryRepo';
 import {
   ADMIN_ROLE_META,
   AdminAccessState,
@@ -111,9 +117,10 @@ interface AdminPanelProps {
   adminAccess?: AdminAccessState;
   authChecking: boolean;
   authRedirectError?: string | null;
+  autoLogoutNotice?: string | null;
+  idleRemainingSeconds?: number;
   siteSettings: SiteSettings;
   onGoogleLogin: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
-  onGoogleLoginRedirect?: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
   onClearDriveToken?: () => void;
   onLogout: () => Promise<void>;
   onSwitchAccount?: () => Promise<void>;
@@ -159,15 +166,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   adminAccess,
   authChecking,
   authRedirectError,
+  autoLogoutNotice,
+  idleRemainingSeconds = 900,
   siteSettings,
   onGoogleLogin,
-  onGoogleLoginRedirect,
   onClearDriveToken,
   onLogout,
   onSwitchAccount,
   onReverifyAdmin,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('files');
+  const [currentDevice, setCurrentDevice] = useState<ClientDeviceInfo | null>(
+    null
+  );
 
   const [loggingIn, setLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
@@ -291,6 +302,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [siteSettings]);
 
   useEffect(() => {
+    let cancelled = false;
+    detectClientDeviceInfo()
+      .then((info) => {
+        if (!cancelled) setCurrentDevice(info);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!user || !isAdmin || !canFiles || !accessToken) {
       setDriveInfo(null);
       return;
@@ -303,9 +326,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           setDriveError(null);
         }
       })
-      .catch((err) => {
-        if (!cancelled) {
-          if (isDriveScopeOrAuthError(err)) {
+      .catch(async (err) => {
+        if (cancelled) return;
+        if (isDriveScopeOrAuthError(err)) {
+          const scopes = await checkTokenScopes(accessToken);
+          if (cancelled) return;
+          if (!scopes.hasDrive) {
             onClearDriveToken?.();
             setDriveInfo(null);
             setDriveError(
@@ -314,11 +340,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             return;
           }
           setDriveError(
-            err instanceof Error
-              ? err.message
-              : 'গুগল ড্রাইভ অ্যাকাউন্টের তথ্য পড়া যায়নি।'
+            'গুগল ড্রাইভ সংযুক্ত আছে, তবে স্টোরেজ কোটার তথ্য পড়া যায়নি।'
           );
+          return;
         }
+        setDriveError(
+          err instanceof Error
+            ? err.message
+            : 'গুগল ড্রাইভ অ্যাকাউন্টের তথ্য পড়া যায়নি।'
+        );
       });
     return () => {
       cancelled = true;
@@ -453,22 +483,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           : 'গুগল সাইন-ইন বাতিল হয়েছে বা ব্যর্থ হয়েছে।'
       );
     } finally {
-      setLoggingIn(false);
-    }
-  };
-
-  const handleRedirectLoginClick = async () => {
-    if (!onGoogleLoginRedirect) return;
-    setLoggingIn(true);
-    setLoginError(null);
-    try {
-      await onGoogleLoginRedirect(false);
-    } catch (err) {
-      setLoginError(
-        err instanceof Error
-          ? err.message
-          : 'রিডাইরেক্ট গুগল সাইন-ইন শুরু করা যায়নি।'
-      );
       setLoggingIn(false);
     }
   };
@@ -913,6 +927,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             ভিজিটর ট্র্যাকিং, শপ গুগল ম্যাপ ও হেডার সেটিংস পরিচালনা করুন।
           </p>
 
+          {autoLogoutNotice && !activeLoginError && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+              {autoLogoutNotice}
+            </div>
+          )}
+
           {activeLoginError && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-700">
               {activeLoginError}
@@ -992,47 +1012,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             )}
           </div>
 
-          {!inIframe &&
-            onGoogleLoginRedirect &&
-            Boolean(
-              activeLoginError?.includes('popup-blocked') ||
-                activeLoginError?.includes('পপআপ')
-            ) && (
-              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-950">
-                <p className="font-semibold text-amber-900">
-                  পপআপ ছাড়াই লগইন করুন (Safari / Mobile Browser):
-                </p>
-                <p className="mt-1 leading-relaxed text-amber-900">
-                  আপনার ব্রাউজার পপআপ ব্লক করে রাখলে পপআপ ছাড়াই সরাসরি একই
-                  ট্যাবে গুগল রিডাইরেক্ট লগইন করতে নিচের বাটনে চাপুন:
-                </p>
-                <button
-                  type="button"
-                  onClick={handleRedirectLoginClick}
-                  disabled={loggingIn}
-                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-md bg-amber-700 px-3.5 py-2 font-semibold text-white hover:bg-amber-800 cursor-pointer disabled:opacity-60"
-                >
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  <span>পপআপ ছাড়াই Google Redirect লগইন করুন</span>
-                </button>
-              </div>
-            )}
-
           {(inIframe || (activeLoginError && !isUnauthorizedDomain)) && (
             <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
               <p className="leading-relaxed">
                 {inIframe ? (
                   <>
-                    প্রিভিউ ফ্রেমের ভেতরে ব্রাউজার পপআপ ব্লক করতে পারে। নিচের
+                    প্রিভিউ ফ্রেমের ভেতরে ব্রাউজার সাইন-ইন সীমিত করতে পারে। নিচের
                     বাটনে ক্লিক করে সরাসরি Chrome/Safari-এর নতুন ট্যাবে খুলে
                     লগইন করুন (অথবা Facebook/Messenger-এর ভেতর থেকে খুললে উপরে
                     ডানদিকে <strong>⋮ → Open in Chrome</strong> চাপুন):
                   </>
                 ) : (
                   <>
-                    লগইন সম্পন্ন না হলে নিচের লিংকে ক্লিক করে নতুন ট্যাবে খুলুন
-                    এবং ব্রাউজার ঠিকানার বাম দিকের{' '}
-                    <strong>Lock / Site Settings → Pop-ups Allow</strong> দিন:
+                    সরাসরি আলাদা ট্যাবে খুলে গুগল সাইন-ইন করতে চাইলে নিচের
+                    বাটনে ক্লিক করুন:
                   </>
                 )}
               </p>
@@ -1203,6 +1196,50 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <ShieldCheck className="h-3.5 w-3.5" />
             <span>{ADMIN_ROLE_META[effectiveAccess.role].label}</span>
           </span>
+
+          {(() => {
+            const CurrentDeviceIcon =
+              currentDevice?.deviceType === 'mobile'
+                ? Smartphone
+                : currentDevice?.deviceType === 'tablet'
+                  ? Tablet
+                  : Monitor;
+            const mins = Math.floor(Math.max(0, idleRemainingSeconds) / 60);
+            const secs = Math.max(0, idleRemainingSeconds) % 60;
+            const countdownLabel = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            const isWarningWindow = idleRemainingSeconds <= 120;
+
+            return (
+              <>
+                <div
+                  title={
+                    currentDevice
+                      ? `বর্তমান ডিভাইস: ${currentDevice.deviceName} (${currentDevice.os} · ${currentDevice.browser})`
+                      : 'বর্তমান লগইন ডিভাইস'
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-700"
+                >
+                  <CurrentDeviceIcon className="h-3.5 w-3.5 shrink-0 text-sky-600" />
+                  <span className="text-slate-500">ডিভাইস:</span>
+                  <span className="font-medium text-slate-900 max-w-[160px] truncate">
+                    {currentDevice?.deviceName || 'শনাক্ত হচ্ছে...'}
+                  </span>
+                </div>
+
+                <div
+                  title="১৫ মিনিট কোনো কাজ না করলে অটো লগআউট হবে"
+                  className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold tabular-nums ${
+                    isWarningWindow
+                      ? 'border-amber-300 bg-amber-50 text-amber-800'
+                      : 'border-slate-200 bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  <Clock className="h-3.5 w-3.5 shrink-0" />
+                  <span>অটো লগআউট: {countdownLabel}</span>
+                </div>
+              </>
+            );
+          })()}
 
           <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700">
             <span className="text-slate-500">সাইন ইন: </span>
@@ -1487,12 +1524,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                     </p>
                     <p>
                       প্রধান অ্যাডমিন ({'noreply.jeetbuzzaff@gmail.com'}) Google Cloud Console-এর{' '}
-                      <span className="font-semibold">OAuth Audience → Test users</span>{' '}
-                      তালিকায়{' '}
+                      <span className="font-semibold">Google Auth Platform → Audience</span>{' '}
+                      থেকে{' '}
+                      <span className="font-semibold">Test users</span> তালিকায়{' '}
                       <span className="font-mono font-semibold">
-                        {user.email}
+                        {effectiveEmail || user.email}
                       </span>{' '}
-                      যোগ করলে ব্লক উঠে যাবে। অথবা এখনই{' '}
+                      যোগ করলে অথবা অ্যাপটি <span className="font-semibold">Publish App</span> করলে ব্লক উঠে যাবে। অথবা এখনই{' '}
                       <button
                         type="button"
                         onClick={() => setUploadMode('link')}
@@ -1509,7 +1547,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       className="inline-flex items-center gap-1 font-semibold text-amber-900 underline hover:text-amber-700"
                     >
                       <ExternalLink className="h-3 w-3" />
-                      <span>Google Cloud Test Users খুলুন</span>
+                      <span>Google Cloud Audience / Test Users খুলুন</span>
                     </a>
                   </div>
                 </div>

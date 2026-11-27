@@ -3,15 +3,12 @@ import { User } from 'firebase/auth';
 import {
   auth,
   clearDriveAccessToken,
-  consumePendingAdminRedirect,
   getAccessToken,
   getEffectiveUserEmail,
   GoogleConsentMode,
   googleSignIn,
-  googleSignInRedirect,
   initAuth,
   logout,
-  PENDING_ADMIN_REDIRECT_KEY,
 } from './lib/firebase';
 import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
 import {
@@ -38,6 +35,40 @@ import { AdSenseScriptLoader } from './components/AdSenseBanner';
 import { LegalPoliciesModal, PolicyTab } from './components/LegalPoliciesModal';
 import { CookieConsentBanner } from './components/CookieConsentBanner';
 
+const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ADMIN_IDLE_TIMEOUT_SECONDS = Math.floor(ADMIN_IDLE_TIMEOUT_MS / 1000);
+
+function getAdminActivityStorageKey(uid: string): string {
+  return `jt_admin_last_activity_${uid}`;
+}
+
+function readStoredAdminActivity(uid: string): number | null {
+  try {
+    const raw = localStorage.getItem(getAdminActivityStorageKey(uid));
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredAdminActivity(uid: string, timestampMs: number): void {
+  try {
+    localStorage.setItem(getAdminActivityStorageKey(uid), String(timestampMs));
+  } catch {
+    // Ignore storage quota/privacy errors
+  }
+}
+
+function clearStoredAdminActivity(uid: string): void {
+  try {
+    localStorage.removeItem(getAdminActivityStorageKey(uid));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 function getInitialActiveView(): 'catalog' | 'admin' {
   if (typeof window === 'undefined') return 'catalog';
   try {
@@ -48,9 +79,6 @@ function getInitialActiveView(): 'catalog' | 'admin' {
       url.pathname === '/admin' ||
       url.hash === '#admin'
     ) {
-      return 'admin';
-    }
-    if (sessionStorage.getItem(PENDING_ADMIN_REDIRECT_KEY) === '1') {
       return 'admin';
     }
   } catch {
@@ -93,7 +121,12 @@ export default function App() {
   const [authRedirectError, setAuthRedirectError] = useState<string | null>(
     null
   );
+  const [autoLogoutNotice, setAutoLogoutNotice] = useState<string | null>(null);
+  const [idleRemainingSeconds, setIdleRemainingSeconds] = useState<number>(
+    ADMIN_IDLE_TIMEOUT_SECONDS
+  );
   const currentUidRef = useRef<string | null>(null);
+  const autoLoggingOutRef = useRef(false);
 
   const [publicFiles, setPublicFiles] = useState<FlashFileRecord[]>([]);
   const [publicLoading, setPublicLoading] = useState(true);
@@ -232,8 +265,35 @@ export default function App() {
             const access = await resolveAdminForUser(firebaseUser);
             setAdminAccess(access);
             if (access.isAdmin) {
-              if (consumePendingAdminRedirect()) {
-                setActiveView('admin');
+              const storedActivity = readStoredAdminActivity(firebaseUser.uid);
+              if (
+                storedActivity !== null &&
+                Date.now() - storedActivity >= ADMIN_IDLE_TIMEOUT_MS
+              ) {
+                clearStoredAdminActivity(firebaseUser.uid);
+                try {
+                  sessionStorage.removeItem(`jt_login_logged_${firebaseUser.uid}`);
+                } catch {
+                  // ignore
+                }
+                await recordAdminLoginEvent({
+                  user: firebaseUser,
+                  eventType: 'logout',
+                  status: 'success',
+                  errorMessage: '১৫ মিনিট নিষ্ক্রিয় থাকায় অটো লগআউট হয়েছে',
+                });
+                await logout();
+                currentUidRef.current = null;
+                setUser(null);
+                setAccessToken(null);
+                setAdminAccess(createDeniedAdminAccess());
+                setAutoLogoutNotice(
+                  'নিরাপত্তার স্বার্থে ১৫ মিনিট কোনো কাজ না করায় আপনার বর্তমান ডিভাইস থেকে অ্যাডমিন সেশন স্বয়ংক্রিয়ভাবে লগআউট হয়েছে। পুনরায় গুগল দিয়ে সাইন ইন করুন।'
+                );
+                return;
+              }
+              if (storedActivity === null) {
+                writeStoredAdminActivity(firebaseUser.uid, Date.now());
               }
               try {
                 const sessionKey = `jt_login_logged_${firebaseUser.uid}`;
@@ -281,6 +341,132 @@ export default function App() {
     );
   }, [user, adminAccess.isPrimary]);
 
+  // 15-Minute Admin Inactivity Auto-Logout Watcher (Current Device + Multi-Tab Sync)
+  useEffect(() => {
+    if (!user || !isAdmin) {
+      setIdleRemainingSeconds(ADMIN_IDLE_TIMEOUT_SECONDS);
+      autoLoggingOutRef.current = false;
+      return;
+    }
+
+    const uid = user.uid;
+    const initialStored = readStoredAdminActivity(uid);
+    let lastActivityMs =
+      initialStored && initialStored <= Date.now() ? initialStored : Date.now();
+    writeStoredAdminActivity(uid, lastActivityMs);
+    let lastThrottleWriteMs = lastActivityMs;
+
+    const triggerAutoLogout = async () => {
+      if (autoLoggingOutRef.current) return;
+      autoLoggingOutRef.current = true;
+      clearStoredAdminActivity(uid);
+      try {
+        sessionStorage.removeItem(`jt_login_logged_${uid}`);
+      } catch {
+        // ignore
+      }
+      await recordAdminLoginEvent({
+        user,
+        eventType: 'logout',
+        status: 'success',
+        errorMessage: '১৫ মিনিট নিষ্ক্রিয় থাকায় অটো লগআউট হয়েছে',
+      });
+      await logout();
+      currentUidRef.current = null;
+      setUser(null);
+      setAccessToken(null);
+      setAdminAccess(createDeniedAdminAccess());
+      setAutoLogoutNotice(
+        'নিরাপত্তার স্বার্থে ১৫ মিনিট কোনো কাজ না করায় আপনার বর্তমান ডিভাইস থেকে অ্যাডমিন সেশন স্বয়ংক্রিয়ভাবে লগআউট হয়েছে। পুনরায় গুগল দিয়ে সাইন ইন করুন।'
+      );
+    };
+
+    const evaluateIdle = () => {
+      const elapsed = Date.now() - lastActivityMs;
+      const remaining = Math.max(
+        0,
+        Math.ceil((ADMIN_IDLE_TIMEOUT_MS - elapsed) / 1000)
+      );
+      setIdleRemainingSeconds(remaining);
+      if (elapsed >= ADMIN_IDLE_TIMEOUT_MS) {
+        void triggerAutoLogout();
+      }
+    };
+
+    const recordActivity = (immediate = false) => {
+      if (autoLoggingOutRef.current) return;
+      const now = Date.now();
+      if (now - lastActivityMs >= ADMIN_IDLE_TIMEOUT_MS) {
+        void triggerAutoLogout();
+        return;
+      }
+      if (!immediate && now - lastThrottleWriteMs < 1000) {
+        return;
+      }
+      lastActivityMs = now;
+      lastThrottleWriteMs = now;
+      writeStoredAdminActivity(uid, now);
+      setIdleRemainingSeconds(ADMIN_IDLE_TIMEOUT_SECONDS);
+    };
+
+    const onDiscreteActivity = () => recordActivity(true);
+    const onContinuousActivity = () => recordActivity(false);
+    const onVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        const stored = readStoredAdminActivity(uid);
+        if (stored && stored > lastActivityMs) {
+          lastActivityMs = stored;
+        }
+        evaluateIdle();
+      }
+    };
+    const onStorageSync = (e: StorageEvent) => {
+      if (e.key !== getAdminActivityStorageKey(uid)) return;
+      const nextVal = e.newValue ? Number(e.newValue) : NaN;
+      if (Number.isFinite(nextVal) && nextVal > lastActivityMs) {
+        lastActivityMs = nextVal;
+        evaluateIdle();
+      }
+    };
+
+    const discreteEvents = [
+      'pointerdown',
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'click',
+      'input',
+      'change',
+    ] as const;
+    const continuousEvents = ['mousemove', 'scroll', 'wheel'] as const;
+
+    discreteEvents.forEach((ev) =>
+      window.addEventListener(ev, onDiscreteActivity, { passive: true })
+    );
+    continuousEvents.forEach((ev) =>
+      window.addEventListener(ev, onContinuousActivity, { passive: true })
+    );
+    document.addEventListener('visibilitychange', onVisibilityOrFocus);
+    window.addEventListener('focus', onVisibilityOrFocus);
+    window.addEventListener('storage', onStorageSync);
+
+    evaluateIdle();
+    const timer = window.setInterval(evaluateIdle, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+      discreteEvents.forEach((ev) =>
+        window.removeEventListener(ev, onDiscreteActivity)
+      );
+      continuousEvents.forEach((ev) =>
+        window.removeEventListener(ev, onContinuousActivity)
+      );
+      document.removeEventListener('visibilitychange', onVisibilityOrFocus);
+      window.removeEventListener('focus', onVisibilityOrFocus);
+      window.removeEventListener('storage', onStorageSync);
+    };
+  }, [user, isAdmin]);
+
   // Subscribe to Public Catalog Files
   useEffect(() => {
     setPublicLoading(true);
@@ -311,10 +497,12 @@ export default function App() {
     forceDriveConsent: GoogleConsentMode = false
   ) => {
     setAuthRedirectError(null);
+    setAutoLogoutNotice(null);
     try {
       const result = await googleSignIn(forceDriveConsent);
       if (result) {
         currentUidRef.current = result.user.uid;
+        writeStoredAdminActivity(result.user.uid, Date.now());
         setUser(result.user);
         setAccessToken(result.accessToken);
         const access = await resolveAdminForUser(result.user);
@@ -378,20 +566,16 @@ export default function App() {
     }
   };
 
-  const handleGoogleLoginRedirect = async (
-    forceDriveConsent: GoogleConsentMode = false
-  ) => {
-    setAuthRedirectError(null);
-    await googleSignInRedirect(forceDriveConsent);
-  };
-
   const handleClearDriveToken = useCallback(() => {
     clearDriveAccessToken();
     setAccessToken(null);
   }, []);
 
   const handleLogout = async () => {
-    consumePendingAdminRedirect();
+    setAutoLogoutNotice(null);
+    if (user) {
+      clearStoredAdminActivity(user.uid);
+    }
     if (user && isAdmin) {
       try {
         sessionStorage.removeItem(`jt_login_logged_${user.uid}`);
@@ -486,9 +670,10 @@ export default function App() {
               adminAccess={adminAccess}
               authChecking={authChecking}
               authRedirectError={authRedirectError}
+              autoLogoutNotice={autoLogoutNotice}
+              idleRemainingSeconds={idleRemainingSeconds}
               siteSettings={siteSettings}
               onGoogleLogin={handleGoogleLogin}
-              onGoogleLoginRedirect={handleGoogleLoginRedirect}
               onClearDriveToken={handleClearDriveToken}
               onLogout={handleLogout}
               onSwitchAccount={handleSwitchAccount}

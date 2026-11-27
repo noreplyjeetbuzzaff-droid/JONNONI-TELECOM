@@ -5,7 +5,6 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
-  signInWithRedirect,
   User,
 } from 'firebase/auth';
 import { doc, getDocFromServer, getFirestore } from 'firebase/firestore';
@@ -32,24 +31,6 @@ export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/gmail.send',
 ] as const;
-
-// Drive-only provider (minimal scope to reduce OAuth consent blocks)
-const driveConsentProvider = new GoogleAuthProvider();
-for (const scope of DRIVE_ONLY_SCOPES) {
-  driveConsentProvider.addScope(scope);
-}
-driveConsentProvider.setCustomParameters({
-  prompt: 'consent select_account',
-});
-
-// Workspace provider for sending Gmail notifications alongside Drive
-const gmailConsentProvider = new GoogleAuthProvider();
-for (const scope of WORKSPACE_SCOPES) {
-  gmailConsentProvider.addScope(scope);
-}
-gmailConsentProvider.setCustomParameters({
-  prompt: 'consent select_account',
-});
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
@@ -80,46 +61,10 @@ export function isPrimaryAdminEmail(
   );
 }
 
-export const PENDING_ADMIN_REDIRECT_KEY = 'jt_pending_admin_redirect';
-const REDIRECT_FAILED_KEY = 'jt_redirect_failed';
-
-export function markPendingAdminRedirect(): void {
+function clearLegacyRedirectStorage(): void {
   try {
-    sessionStorage.setItem(PENDING_ADMIN_REDIRECT_KEY, '1');
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-export function consumePendingAdminRedirect(): boolean {
-  try {
-    const val = sessionStorage.getItem(PENDING_ADMIN_REDIRECT_KEY) === '1';
-    if (val) sessionStorage.removeItem(PENDING_ADMIN_REDIRECT_KEY);
-    return val;
-  } catch {
-    return false;
-  }
-}
-
-function hasRedirectFailedInSession(): boolean {
-  try {
-    return sessionStorage.getItem(REDIRECT_FAILED_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function markRedirectFailedInSession(): void {
-  try {
-    sessionStorage.setItem(REDIRECT_FAILED_KEY, '1');
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-function clearRedirectFailedInSession(): void {
-  try {
-    sessionStorage.removeItem(REDIRECT_FAILED_KEY);
+    sessionStorage.removeItem('jt_pending_admin_redirect');
+    sessionStorage.removeItem('jt_redirect_failed');
   } catch {
     // Ignore storage errors
   }
@@ -208,13 +153,13 @@ function formatAuthErrorMessage(err: unknown): string {
   const rawMessage = err instanceof Error ? err.message : String(err);
 
   if (code === 'auth/popup-blocked') {
-    return 'আপনার ব্রাউজার লগইন পপআপ ব্লক করেছে। ব্রাউজারের ঠিকানার বাম পাশের আইকন থেকে Pop-ups Allow করুন, অথবা নিচের "পপআপ ছাড়াই Google Redirect লগইন করুন" / "নতুন ট্যাবে খুলে লগইন করুন" বাটনে ক্লিক করুন। (auth/popup-blocked)';
+    return 'লগইন পপআপ ওপেন হতে পারেনি। অনুগ্রহ করে নিচের "নতুন ট্যাবে খুলে লগইন করুন" বাটনে ক্লিক করে সরাসরি গুগল সাইন-ইন করুন। (auth/popup-blocked)';
   }
   if (
     code === 'auth/popup-closed-by-user' ||
     code === 'auth/cancelled-popup-request'
   ) {
-    return 'গুগল সাইন-ইন পপআপ সম্পূর্ণ হওয়ার আগেই বন্ধ হয়েছে অথবা ব্রাউজারের থার্ড-পার্টি কুকি বন্ধ থাকায় সেশন ফিরে আসেনি। Chrome-এ কুকি ও পপআপ Allow করে অথবা নতুন ট্যাবে খুলে আবার চেষ্টা করুন।';
+    return 'গুগল সাইন-ইন সম্পূর্ণ হওয়ার আগেই পপআপ বন্ধ হয়েছে। অনুগ্রহ করে পুনরায় "Sign in with Google" বাটনে ক্লিক করুন।';
   }
   if (code === 'auth/unauthorized-domain') {
     const host =
@@ -225,7 +170,7 @@ function formatAuthErrorMessage(err: unknown): string {
     return 'ইন্টারনেট সংযোগের সমস্যার কারণে গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে নেটওয়ার্ক যাচাই করে আবার চেষ্টা করুন।';
   }
   if (code === 'auth/web-storage-unsupported') {
-    return 'আপনার ব্রাউজারে কুকি বা স্টোরেজ ব্লক করা আছে। প্রাইভেট মোড বন্ধ করে বা কুকি চালু করে চেষ্টা করুন।';
+    return 'এই ব্রাউজারে স্টোরেজ সাপোর্ট সীমিত। সাধারণ ব্রাউজার ট্যাবে খুলে আবার চেষ্টা করুন।';
   }
   if (
     code === 'auth/operation-not-allowed' ||
@@ -240,7 +185,7 @@ function formatAuthErrorMessage(err: unknown): string {
     lowerMsg.includes('admin_policy_enforced') ||
     lowerMsg.includes('org_internal')
   ) {
-    return 'গুগল OAuth অনুমতি ব্লক হয়েছে (Error 403: access_denied)। অ্যাপটি Google Cloud OAuth "Testing" মোডে থাকলে শুধুমাত্র Test Users তালিকার জিমেইল থেকেই Drive/Gmail সংযুক্ত করা যায়। প্রধান অ্যাডমিন (noreply.jeetbuzzaff@gmail.com) Google Cloud Console-এ আপনার ইমেইলটি Test User হিসেবে যুক্ত করলে এটি ঠিক হয়ে যাবে—অথবা নিচের "ড্রাইভ লিংক দিয়ে ফাইল প্রকাশ" অপশন ব্যবহার করতে পারেন।';
+    return 'গুগল OAuth অনুমতি ব্লক হয়েছে (Error 403: access_denied)। Google Cloud Console-এর Audience অংশে অ্যাপটি "Testing" মোডে থাকলে প্রধান অ্যাডমিন (noreply.jeetbuzzaff@gmail.com)-কে এই জিমেইলটি Test Users তালিকায় যোগ করতে হবে অথবা "Publish App" করতে হবে। এছাড়া নিচের "ড্রাইভ লিংক দিয়ে ফাইল প্রকাশ" অপশন দিয়েও সাথে সাথে ফাইল যোগ করতে পারবেন।';
   }
   return rawMessage || 'গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
 }
@@ -280,13 +225,12 @@ export const initAuth = (
   onAuthChange: (user: User | null, accessToken: string | null) => void,
   onAuthError?: (message: string) => void
 ) => {
-  const hadPendingRedirect = consumePendingAdminRedirect();
+  clearLegacyRedirectStorage();
 
-  // Recover any pending OAuth redirect credential if signInWithRedirect ran
+  // Silently recover any redirect credential if present, without emitting third-party cookie errors
   getRedirectResult(auth)
     .then(async (redirectResult) => {
       if (redirectResult) {
-        clearRedirectFailedInSession();
         const credential =
           GoogleAuthProvider.credentialFromResult(redirectResult);
         if (
@@ -296,17 +240,9 @@ export const initAuth = (
           cachedAccessToken = credential.accessToken;
         }
         onAuthChange(redirectResult.user, cachedAccessToken);
-      } else if (hadPendingRedirect && !auth.currentUser) {
-        markRedirectFailedInSession();
-        if (onAuthError) {
-          onAuthError(
-            'রিডাইরেক্ট লগইন সেশন সম্পূর্ণ হয়নি (ব্রাউজারে থার্ড-পার্টি কুকি বন্ধ থাকায়)। Chrome ঠিকানার বাম পাশের সেটিংস থেকে কুকি ও পপআপ Allow করে সরাসরি "Sign in with Google" বাটনে ক্লিক করুন।'
-          );
-        }
       }
     })
     .catch((err) => {
-      markRedirectFailedInSession();
       console.error('Redirect auth check error:', err);
       if (onAuthError && !auth.currentUser) {
         onAuthError(formatAuthErrorMessage(err));
@@ -315,7 +251,6 @@ export const initAuth = (
 
   return onAuthStateChanged(auth, (user: User | null) => {
     if (user) {
-      clearRedirectFailedInSession();
       if (!isSigningIn && !cachedAccessToken) {
         onAuthChange(user, null);
       } else {
@@ -331,11 +266,32 @@ export const initAuth = (
 export type GoogleConsentMode = boolean | 'drive' | 'gmail';
 
 function resolveProviderForConsent(
-  consentMode: GoogleConsentMode
+  consentMode: GoogleConsentMode,
+  loginHint?: string | null
 ): GoogleAuthProvider {
-  if (consentMode === 'gmail') return gmailConsentProvider;
+  if (consentMode === 'gmail') {
+    const p = new GoogleAuthProvider();
+    for (const scope of WORKSPACE_SCOPES) {
+      p.addScope(scope);
+    }
+    p.setCustomParameters(
+      loginHint
+        ? { prompt: 'consent select_account', login_hint: loginHint }
+        : { prompt: 'consent select_account' }
+    );
+    return p;
+  }
   if (consentMode === true || consentMode === 'drive') {
-    return driveConsentProvider;
+    const p = new GoogleAuthProvider();
+    for (const scope of DRIVE_ONLY_SCOPES) {
+      p.addScope(scope);
+    }
+    p.setCustomParameters(
+      loginHint
+        ? { prompt: 'consent select_account', login_hint: loginHint }
+        : { prompt: 'consent select_account' }
+    );
+    return p;
   }
   return provider;
 }
@@ -346,8 +302,9 @@ export const googleSignIn = async (
   user: User;
   accessToken: string | null;
 } | null> => {
-  consumePendingAdminRedirect();
-  const activeProvider = resolveProviderForConsent(forceConsent);
+  clearLegacyRedirectStorage();
+  const currentEmail = getEffectiveUserEmail(auth.currentUser);
+  const activeProvider = resolveProviderForConsent(forceConsent, currentEmail);
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, activeProvider);
@@ -366,39 +323,9 @@ export const googleSignIn = async (
     if (!forceConsent && auth.currentUser) {
       return { user: auth.currentUser, accessToken: cachedAccessToken };
     }
-    const errCode =
-      typeof err === 'object' && err !== null && 'code' in err
-        ? String((err as { code?: unknown }).code)
-        : '';
-    const inTopWindow =
-      typeof window !== 'undefined' && window.self === window.top;
-    if (
-      (errCode === 'auth/popup-blocked' ||
-        errCode === 'auth/operation-not-supported-in-this-environment') &&
-      inTopWindow &&
-      !forceConsent &&
-      !hasRedirectFailedInSession()
-    ) {
-      markPendingAdminRedirect();
-      await signInWithRedirect(auth, activeProvider);
-      return null;
-    }
     throw new Error(formatAuthErrorMessage(err));
   } finally {
     isSigningIn = false;
-  }
-};
-
-export const googleSignInRedirect = async (
-  forceConsent: GoogleConsentMode = false
-): Promise<void> => {
-  const activeProvider = resolveProviderForConsent(forceConsent);
-  try {
-    clearRedirectFailedInSession();
-    markPendingAdminRedirect();
-    await signInWithRedirect(auth, activeProvider);
-  } catch (err: unknown) {
-    throw new Error(formatAuthErrorMessage(err));
   }
 };
 
