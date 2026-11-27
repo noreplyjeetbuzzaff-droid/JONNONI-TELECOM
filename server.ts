@@ -489,9 +489,21 @@ setInterval(() => {
   }
 }, 15_000).unref();
 
+interface VerifiedAdminPermissions {
+  manageFiles: boolean;
+  viewVisitors: boolean;
+  manageSeo: boolean;
+  manageSettings: boolean;
+  viewLoginHistory: boolean;
+  manageAdmins: boolean;
+}
+
+const PRIMARY_ADMIN_EMAIL = 'noreply.jeetbuzzaff@gmail.com';
+
 async function verifyAdminBearerToken(authHeader: string | undefined): Promise<{
   uid: string;
   email: string;
+  permissions: VerifiedAdminPermissions;
 } | null> {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
   const idToken = authHeader.slice(7).trim();
@@ -518,13 +530,76 @@ async function verifyAdminBearerToken(authHeader: string | undefined): Promise<{
     const user = lookupJson.users?.[0];
     if (!user || !user.emailVerified || !user.email) return null;
 
-    if (
-      BOOTSTRAPPED_ADMIN_EMAILS.includes(user.email.trim().toLowerCase())
-    ) {
-      return { uid: user.localId, email: user.email };
+    const normalizedEmail = user.email.trim().toLowerCase();
+    if (normalizedEmail === PRIMARY_ADMIN_EMAIL) {
+      return {
+        uid: user.localId,
+        email: user.email,
+        permissions: {
+          manageFiles: true,
+          viewVisitors: true,
+          manageSeo: true,
+          manageSettings: true,
+          viewLoginHistory: true,
+          manageAdmins: true,
+        },
+      };
     }
 
-    // Check admins/{uid} via Firestore REST using the caller's own Firebase ID token
+    // Check Administrator-managed /admin_accounts/{email} first
+    const managedUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
+      projectId
+    )}/databases/${encodeURIComponent(databaseId)}/documents/admin_accounts/${encodeURIComponent(
+      normalizedEmail
+    )}`;
+    const managedRes = await fetch(managedUrl, {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    if (managedRes.ok) {
+      const managedDoc = (await managedRes.json()) as {
+        fields?: {
+          active?: { booleanValue?: boolean };
+          permissions?: {
+            mapValue?: {
+              fields?: Record<string, { booleanValue?: boolean }>;
+            };
+          };
+        };
+      };
+      if (managedDoc.fields?.active?.booleanValue === false) {
+        return null;
+      }
+      const pFields = managedDoc.fields?.permissions?.mapValue?.fields || {};
+      return {
+        uid: user.localId,
+        email: user.email,
+        permissions: {
+          manageFiles: pFields.manageFiles?.booleanValue === true,
+          viewVisitors: pFields.viewVisitors?.booleanValue === true,
+          manageSeo: pFields.manageSeo?.booleanValue === true,
+          manageSettings: pFields.manageSettings?.booleanValue === true,
+          viewLoginHistory: pFields.viewLoginHistory?.booleanValue === true,
+          manageAdmins: pFields.manageAdmins?.booleanValue === true,
+        },
+      };
+    }
+
+    if (BOOTSTRAPPED_ADMIN_EMAILS.includes(normalizedEmail)) {
+      return {
+        uid: user.localId,
+        email: user.email,
+        permissions: {
+          manageFiles: true,
+          viewVisitors: true,
+          manageSeo: true,
+          manageSettings: true,
+          viewLoginHistory: true,
+          manageAdmins: false,
+        },
+      };
+    }
+
+    // Legacy /admins/{uid} fallback
     const adminDocUrl = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(
       projectId
     )}/databases/${encodeURIComponent(databaseId)}/documents/admins/${encodeURIComponent(
@@ -538,7 +613,18 @@ async function verifyAdminBearerToken(authHeader: string | undefined): Promise<{
       fields?: { role?: { stringValue?: string } };
     };
     if (adminDoc.fields?.role?.stringValue === 'admin') {
-      return { uid: user.localId, email: user.email };
+      return {
+        uid: user.localId,
+        email: user.email,
+        permissions: {
+          manageFiles: true,
+          viewVisitors: true,
+          manageSeo: true,
+          manageSettings: true,
+          viewLoginHistory: true,
+          manageAdmins: false,
+        },
+      };
     }
     return null;
   } catch {
@@ -755,8 +841,8 @@ async function createServer() {
   // Admin: sync AdSense publisher ID for ads.txt
   app.post('/api/admin/ads-config', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
-    if (!admin) {
-      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+    if (!admin || (!admin.permissions.manageSettings && !admin.permissions.manageSeo)) {
+      res.status(403).json({ error: 'সেটিংস পরিবর্তনের অ্যাডমিন অনুমতি প্রয়োজন।' });
       return;
     }
     const pubId =
@@ -897,8 +983,8 @@ async function createServer() {
   // Admin: Real-Time SSE Visitor Analytics Stream
   app.get('/api/analytics/stream', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
-    if (!admin) {
-      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+    if (!admin || !admin.permissions.viewVisitors) {
+      res.status(403).json({ error: 'ভিজিটর বিশ্লেষণ দেখার অনুমতি প্রয়োজন।' });
       return;
     }
 
@@ -932,8 +1018,8 @@ async function createServer() {
   // Admin: Visitor Analytics Summary
   app.get('/api/analytics/summary', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
-    if (!admin) {
-      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+    if (!admin || !admin.permissions.viewVisitors) {
+      res.status(403).json({ error: 'ভিজিটর বিশ্লেষণ দেখার অনুমতি প্রয়োজন।' });
       return;
     }
 
@@ -944,8 +1030,8 @@ async function createServer() {
   // Admin: Reset Visitor Analytics
   app.post('/api/analytics/reset', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
-    if (!admin) {
-      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+    if (!admin || !admin.permissions.viewVisitors) {
+      res.status(403).json({ error: 'ভিজিটর পরিসংখ্যান রিসেট করার অনুমতি প্রয়োজন।' });
       return;
     }
     const fresh = createEmptyAnalytics();

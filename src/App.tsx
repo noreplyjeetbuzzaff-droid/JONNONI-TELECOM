@@ -15,14 +15,19 @@ import {
 } from './lib/firebase';
 import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
 import {
-  checkIsAdmin,
-  subscribePublicFlashFiles,
-} from './lib/flashFilesRepo';
+  resolveAdminAccess,
+  subscribeOwnAdminAccess,
+} from './lib/adminAccountsRepo';
+import { subscribePublicFlashFiles } from './lib/flashFilesRepo';
 import { subscribeSiteSettings } from './lib/siteSettingsRepo';
 import {
   startVisitorPresence,
   trackInitialPageviewOnce,
 } from './lib/analyticsClient';
+import {
+  AdminAccessState,
+  createDeniedAdminAccess,
+} from './types/adminAccess';
 import { FlashFileRecord } from './types/flashFile';
 import { DEFAULT_SITE_SETTINGS, SiteSettings } from './types/siteSettings';
 import { Navbar } from './components/Navbar';
@@ -80,7 +85,10 @@ export default function App() {
 
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminAccess, setAdminAccess] = useState<AdminAccessState>(() =>
+    createDeniedAdminAccess()
+  );
+  const isAdmin = adminAccess.isAdmin;
   const [authChecking, setAuthChecking] = useState(true);
   const [authRedirectError, setAuthRedirectError] = useState<string | null>(
     null
@@ -199,7 +207,7 @@ export default function App() {
       }
     }
 
-    return checkIsAdmin(
+    return resolveAdminAccess(
       firebaseUser.uid,
       resolvedEmail,
       resolvedVerified,
@@ -221,9 +229,9 @@ export default function App() {
             setAccessToken(token || getAccessToken());
             setAuthRedirectError(null);
 
-            const adminStatus = await resolveAdminForUser(firebaseUser);
-            setIsAdmin(adminStatus);
-            if (adminStatus) {
+            const access = await resolveAdminForUser(firebaseUser);
+            setAdminAccess(access);
+            if (access.isAdmin) {
               if (consumePendingAdminRedirect()) {
                 setActiveView('admin');
               }
@@ -245,7 +253,7 @@ export default function App() {
             currentUidRef.current = null;
             setUser(null);
             setAccessToken(null);
-            setIsAdmin(false);
+            setAdminAccess(createDeniedAdminAccess());
           }
         } finally {
           setAuthChecking(false);
@@ -259,6 +267,19 @@ export default function App() {
 
     return () => unsubscribeAuth();
   }, [resolveAdminForUser]);
+
+  // Real-time Access Control sync for signed-in non-primary admins
+  useEffect(() => {
+    if (!user) return;
+    const effectiveEmail = getEffectiveUserEmail(user);
+    return subscribeOwnAdminAccess(
+      effectiveEmail,
+      adminAccess.isPrimary,
+      (nextAccess) => {
+        setAdminAccess(nextAccess);
+      }
+    );
+  }, [user, adminAccess.isPrimary]);
 
   // Subscribe to Public Catalog Files
   useEffect(() => {
@@ -296,9 +317,9 @@ export default function App() {
         currentUidRef.current = result.user.uid;
         setUser(result.user);
         setAccessToken(result.accessToken);
-        const adminStatus = await resolveAdminForUser(result.user);
-        setIsAdmin(adminStatus);
-        if (adminStatus) {
+        const access = await resolveAdminForUser(result.user);
+        setAdminAccess(access);
+        if (access.isAdmin) {
           setActiveView('admin');
           if (forceDriveConsent === 'gmail') {
             recordAdminLoginEvent({
@@ -331,11 +352,11 @@ export default function App() {
       }
     } catch (err) {
       if (auth.currentUser && !forceDriveConsent) {
-        const recoveredAdmin = await resolveAdminForUser(auth.currentUser);
+        const recoveredAccess = await resolveAdminForUser(auth.currentUser);
         currentUidRef.current = auth.currentUser.uid;
         setUser(auth.currentUser);
-        setIsAdmin(recoveredAdmin);
-        if (recoveredAdmin) {
+        setAdminAccess(recoveredAccess);
+        if (recoveredAccess.isAdmin) {
           setActiveView('admin');
           return;
         }
@@ -387,7 +408,7 @@ export default function App() {
     currentUidRef.current = null;
     setUser(null);
     setAccessToken(null);
-    setIsAdmin(false);
+    setAdminAccess(createDeniedAdminAccess());
   };
 
   const handleSwitchAccount = async () => {
@@ -403,10 +424,10 @@ export default function App() {
     try {
       await active.reload().catch(() => {});
       await active.getIdToken(true).catch(() => {});
-      const adminStatus = await resolveAdminForUser(active);
+      const access = await resolveAdminForUser(active);
       setUser(active);
-      setIsAdmin(adminStatus);
-      if (adminStatus) {
+      setAdminAccess(access);
+      if (access.isAdmin) {
         setActiveView('admin');
       }
     } finally {
@@ -462,6 +483,7 @@ export default function App() {
               user={user}
               accessToken={accessToken}
               isAdmin={isAdmin}
+              adminAccess={adminAccess}
               authChecking={authChecking}
               authRedirectError={authRedirectError}
               siteSettings={siteSettings}

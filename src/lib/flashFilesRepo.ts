@@ -15,9 +15,9 @@ import {
 import {
   db,
   handleFirestoreError,
-  isBootstrappedAdminEmail,
   OperationType,
 } from './firebase';
+import { resolveAdminAccess } from './adminAccountsRepo';
 import {
   CreateFlashFileInput,
   FlashFileRecord,
@@ -55,19 +55,13 @@ export async function checkIsAdmin(
   emailVerified: boolean,
   hasGoogleProvider = false
 ): Promise<boolean> {
-  const isVerified = emailVerified || hasGoogleProvider;
-  if (!isVerified) return false;
-  if (isBootstrappedAdminEmail(email)) {
-    return true;
-  }
-  if (!ID_REGEX.test(uid)) return false;
-
-  try {
-    const snap = await getDoc(doc(db, 'admins', uid));
-    return snap.exists() && snap.data()?.role === 'admin';
-  } catch {
-    return false;
-  }
+  const access = await resolveAdminAccess(
+    uid,
+    email,
+    emailVerified,
+    hasGoogleProvider
+  );
+  return access.isAdmin;
 }
 
 export function subscribePublicFlashFiles(

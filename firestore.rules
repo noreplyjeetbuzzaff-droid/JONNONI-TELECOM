@@ -10,6 +10,10 @@ service cloud.firestore {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
+    function isValidEmailKey(id) {
+      return id is string && id.size() >= 5 && id.size() <= 160 && id.matches('^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$');
+    }
+
     function incoming() {
       return request.resource.data;
     }
@@ -26,22 +30,73 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
-    function isBootstrappedAdmin() {
-      return isVerifiedUser() && (
-        'email' in request.auth.token &&
-        request.auth.token.email is string &&
-        request.auth.token.email.lower() in [
-          'noreply.jeetbuzzaff@gmail.com',
+    function hasTokenEmail() {
+      return isVerifiedUser()
+        && 'email' in request.auth.token
+        && request.auth.token.email is string;
+    }
+
+    function isPrimaryAdmin() {
+      return hasTokenEmail()
+        && request.auth.token.email.lower() == 'noreply.jeetbuzzaff@gmail.com';
+    }
+
+    function isDefaultSecondaryEmail() {
+      return hasTokenEmail()
+        && request.auth.token.email.lower() in [
           'sflove087@gmail.com',
           'jononitelecom266366@gmail.com'
-        ]
-      );
+        ];
+    }
+
+    function hasManagedAccountDoc() {
+      return hasTokenEmail()
+        && exists(/databases/$(database)/documents/admin_accounts/$(request.auth.token.email.lower()));
+    }
+
+    function isActiveManagedAccount() {
+      return hasManagedAccountDoc()
+        && get(/databases/$(database)/documents/admin_accounts/$(request.auth.token.email.lower())).data.active == true;
+    }
+
+    function isDefaultActiveSecondaryAdmin() {
+      return isDefaultSecondaryEmail()
+        && (!hasManagedAccountDoc() || isActiveManagedAccount());
+    }
+
+    function isBootstrappedAdmin() {
+      return isPrimaryAdmin() || isDefaultActiveSecondaryAdmin();
+    }
+
+    function isLegacyUidAdmin() {
+      return isVerifiedUser()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && (!hasManagedAccountDoc() || isActiveManagedAccount());
     }
 
     function isAdmin() {
-      return isBootstrappedAdmin() || (
-        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+      return isPrimaryAdmin()
+        || isActiveManagedAccount()
+        || isDefaultActiveSecondaryAdmin()
+        || isLegacyUidAdmin();
+    }
+
+    function hasPermission(perm) {
+      return isPrimaryAdmin()
+        || (
+          isActiveManagedAccount()
+          && perm in get(/databases/$(database)/documents/admin_accounts/$(request.auth.token.email.lower())).data.permissions
+          && get(/databases/$(database)/documents/admin_accounts/$(request.auth.token.email.lower())).data.permissions[perm] == true
+        )
+        || (
+          !hasManagedAccountDoc()
+          && (isDefaultSecondaryEmail() || isLegacyUidAdmin())
+          && perm != 'manageAdmins'
+        );
+    }
+
+    function canManageAdmins() {
+      return isPrimaryAdmin() || hasPermission('manageAdmins');
     }
 
     function isValidCategory(cat) {
@@ -69,6 +124,57 @@ service cloud.firestore {
 
     function isValidHeaderTheme(theme) {
       return theme in ['navy', 'cobalt', 'emerald', 'charcoal', 'white'];
+    }
+
+    function isValidAdminRole(role) {
+      return role in ['super_admin', 'admin', 'moderator', 'viewer'];
+    }
+
+    function isValidPermissionsMap(perms) {
+      return perms is map
+        && perms.keys().hasAll([
+          'manageFiles',
+          'viewVisitors',
+          'manageSeo',
+          'manageSettings',
+          'viewLoginHistory',
+          'manageAdmins'
+        ])
+        && perms.keys().hasOnly([
+          'manageFiles',
+          'viewVisitors',
+          'manageSeo',
+          'manageSettings',
+          'viewLoginHistory',
+          'manageAdmins'
+        ])
+        && perms.manageFiles is bool
+        && perms.viewVisitors is bool
+        && perms.manageSeo is bool
+        && perms.manageSettings is bool
+        && perms.viewLoginHistory is bool
+        && perms.manageAdmins is bool;
+    }
+
+    function isValidAdminAccount(data) {
+      return data.keys().hasAll([
+        'email', 'displayName', 'role', 'active', 'permissions',
+        'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'
+      ])
+      && data.keys().hasOnly([
+        'email', 'displayName', 'role', 'active', 'permissions',
+        'note', 'createdByUid', 'createdByEmail', 'createdAt', 'updatedAt'
+      ])
+      && data.email is string && isValidEmailKey(data.email) && data.email == data.email.lower()
+      && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+      && data.role is string && isValidAdminRole(data.role)
+      && data.active is bool
+      && isValidPermissionsMap(data.permissions)
+      && (!('note' in data) || (data.note is string && data.note.size() <= 200))
+      && data.createdByUid is string && isValidId(data.createdByUid)
+      && data.createdByEmail is string && data.createdByEmail.size() >= 3 && data.createdByEmail.size() <= 160
+      && data.createdAt is timestamp
+      && data.updatedAt is timestamp;
     }
 
     function isValidFlashFile(data) {
@@ -221,10 +327,10 @@ service cloud.firestore {
     }
 
     match /flash_files/{fileId} {
-      allow get: if isValidId(fileId) && (resource.data.isPublicDrive == true || isAdmin());
-      allow list: if resource.data.isPublicDrive == true || isBootstrappedAdmin() || (isVerifiedUser() && resource.data.uploadedByUid == request.auth.uid);
+      allow get: if isValidId(fileId) && (resource.data.isPublicDrive == true || hasPermission('manageFiles'));
+      allow list: if resource.data.isPublicDrive == true || hasPermission('manageFiles') || (isAdmin() && resource.data.uploadedByUid == request.auth.uid);
 
-      allow create: if isAdmin()
+      allow create: if hasPermission('manageFiles')
         && isValidId(fileId)
         && isValidFlashFile(incoming())
         && incoming().uploadedByUid == request.auth.uid
@@ -235,7 +341,7 @@ service cloud.firestore {
         && isValidFlashFile(incoming())
         && (
           (
-            isAdmin()
+            hasPermission('manageFiles')
             && incoming().diff(existing()).affectedKeys().hasOnly([
               'title', 'brand', 'model', 'category', 'chipset',
               'version', 'notes', 'price', 'isPublicDrive', 'updatedAt'
@@ -255,20 +361,20 @@ service cloud.firestore {
           )
         );
 
-      allow delete: if isAdmin() && isValidId(fileId);
+      allow delete: if hasPermission('manageFiles') && isValidId(fileId);
     }
 
     match /admins/{adminUid} {
-      allow get: if isValidId(adminUid) && (isAdmin() || (isVerifiedUser() && request.auth.uid == adminUid));
-      allow list: if isBootstrappedAdmin() && resource.data.role == 'admin';
+      allow get: if isValidId(adminUid) && (canManageAdmins() || (isVerifiedUser() && request.auth.uid == adminUid));
+      allow list: if canManageAdmins() && resource.data.role == 'admin';
 
-      allow create: if isBootstrappedAdmin()
+      allow create: if canManageAdmins()
         && isValidId(adminUid)
         && isValidAdminDoc(incoming())
         && incoming().uid == adminUid
         && incoming().createdAt == request.time;
 
-      allow update: if isBootstrappedAdmin()
+      allow update: if canManageAdmins()
         && isValidId(adminUid)
         && isValidAdminDoc(incoming())
         && incoming().diff(existing()).affectedKeys().hasOnly(['displayName'])
@@ -277,14 +383,50 @@ service cloud.firestore {
         && incoming().role == existing().role
         && incoming().createdAt == existing().createdAt;
 
-      allow delete: if isBootstrappedAdmin() && isValidId(adminUid) && adminUid != request.auth.uid;
+      allow delete: if canManageAdmins() && isValidId(adminUid) && adminUid != request.auth.uid;
+    }
+
+    match /admin_accounts/{emailKey} {
+      allow get: if isValidEmailKey(emailKey) && (
+        canManageAdmins()
+        || (hasTokenEmail() && request.auth.token.email.lower() == emailKey)
+      );
+      allow list: if canManageAdmins() && resource.data.role in ['super_admin', 'admin', 'moderator', 'viewer'];
+
+      allow create: if canManageAdmins()
+        && isValidEmailKey(emailKey)
+        && emailKey != 'noreply.jeetbuzzaff@gmail.com'
+        && isValidAdminAccount(incoming())
+        && incoming().email == emailKey
+        && incoming().createdByUid == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if canManageAdmins()
+        && isValidEmailKey(emailKey)
+        && emailKey != 'noreply.jeetbuzzaff@gmail.com'
+        && isValidAdminAccount(incoming())
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'displayName', 'role', 'active', 'permissions', 'note', 'updatedAt'
+        ])
+        && incoming().email == existing().email
+        && incoming().createdByUid == existing().createdByUid
+        && incoming().createdByEmail == existing().createdByEmail
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if canManageAdmins()
+        && isValidEmailKey(emailKey)
+        && emailKey != 'noreply.jeetbuzzaff@gmail.com'
+        && hasTokenEmail()
+        && emailKey != request.auth.token.email.lower();
     }
 
     match /site_settings/{settingId} {
       allow get: if settingId == 'public';
-      allow list: if isBootstrappedAdmin();
+      allow list: if isPrimaryAdmin();
 
-      allow create, update: if isAdmin()
+      allow create, update: if (hasPermission('manageSettings') || hasPermission('manageSeo'))
         && settingId == 'public'
         && isValidSiteSettings(incoming())
         && incoming().updatedByUid == request.auth.uid
@@ -294,20 +436,20 @@ service cloud.firestore {
     }
 
     match /visitor_events/{eventId} {
-      allow get: if isAdmin() && isValidId(eventId);
-      allow list: if isAdmin();
+      allow get: if hasPermission('viewVisitors') && isValidId(eventId);
+      allow list: if hasPermission('viewVisitors');
 
       allow create: if isValidId(eventId)
         && isValidVisitorEvent(incoming())
         && incoming().createdAt == request.time;
 
       allow update: if false;
-      allow delete: if isAdmin() && isValidId(eventId);
+      allow delete: if hasPermission('viewVisitors') && isValidId(eventId);
     }
 
     match /visitor_presence/{sessionId} {
-      allow get: if isAdmin() && isValidId(sessionId);
-      allow list: if isAdmin();
+      allow get: if hasPermission('viewVisitors') && isValidId(sessionId);
+      allow list: if hasPermission('viewVisitors');
 
       allow create, update: if isValidId(sessionId)
         && isValidVisitorPresence(incoming())
@@ -318,8 +460,8 @@ service cloud.firestore {
     }
 
     match /login_history/{entryId} {
-      allow get: if isAdmin() && isValidId(entryId);
-      allow list: if isAdmin();
+      allow get: if hasPermission('viewLoginHistory') && isValidId(entryId);
+      allow list: if hasPermission('viewLoginHistory');
 
       allow create: if isAdmin()
         && isValidId(entryId)
@@ -329,7 +471,7 @@ service cloud.firestore {
         && incoming().createdAt == request.time;
 
       allow update: if false;
-      allow delete: if isBootstrappedAdmin() && isValidId(entryId);
+      allow delete: if isPrimaryAdmin() && isValidId(entryId);
     }
   }
 }

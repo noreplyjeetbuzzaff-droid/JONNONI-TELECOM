@@ -88,6 +88,13 @@ import {
   isBootstrappedAdminEmail,
   isPrimaryAdminEmail,
 } from '../lib/firebase';
+import {
+  ADMIN_ROLE_META,
+  AdminAccessState,
+  createDeniedAdminAccess,
+  DEFAULT_ALL_PERMISSIONS,
+  DEFAULT_SECONDARY_PERMISSIONS,
+} from '../types/adminAccess';
 import { AdminManagementTab } from './AdminManagementTab';
 import { AdminSeoModule } from './AdminSeoModule';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -101,6 +108,7 @@ interface AdminPanelProps {
   user: User | null;
   accessToken: string | null;
   isAdmin: boolean;
+  adminAccess?: AdminAccessState;
   authChecking: boolean;
   authRedirectError?: string | null;
   siteSettings: SiteSettings;
@@ -148,6 +156,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   user,
   accessToken,
   isAdmin,
+  adminAccess,
   authChecking,
   authRedirectError,
   siteSettings,
@@ -222,21 +231,67 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loggingOut, setLoggingOut] = useState(false);
 
   const effectiveEmail = getEffectiveUserEmail(user);
-  const isBootstrapped = isBootstrappedAdminEmail(effectiveEmail);
   const isPrimaryAdmin = isPrimaryAdminEmail(effectiveEmail);
 
-  useEffect(() => {
-    if (activeTab === 'admins' && !isPrimaryAdmin) {
-      setActiveTab('files');
+  const effectiveAccess: AdminAccessState = useMemo(() => {
+    if (adminAccess) return adminAccess;
+    if (isPrimaryAdmin) {
+      return {
+        isAdmin: true,
+        isPrimary: true,
+        active: true,
+        isSuspended: false,
+        role: 'super_admin',
+        permissions: { ...DEFAULT_ALL_PERMISSIONS },
+      };
     }
-  }, [activeTab, isPrimaryAdmin]);
+    if (isAdmin) {
+      return {
+        isAdmin: true,
+        isPrimary: false,
+        active: true,
+        isSuspended: false,
+        role: 'admin',
+        permissions: { ...DEFAULT_SECONDARY_PERMISSIONS },
+      };
+    }
+    return createDeniedAdminAccess();
+  }, [adminAccess, isPrimaryAdmin, isAdmin]);
+
+  const isBootstrapped =
+    isBootstrappedAdminEmail(effectiveEmail) || effectiveAccess.isAdmin;
+
+  const canFiles = effectiveAccess.permissions.manageFiles;
+  const canVisitors = effectiveAccess.permissions.viewVisitors;
+  const canSeo = effectiveAccess.permissions.manageSeo;
+  const canSettings = effectiveAccess.permissions.manageSettings;
+  const canAdmins =
+    effectiveAccess.isPrimary || effectiveAccess.permissions.manageAdmins;
+  const canHistory = effectiveAccess.permissions.viewLoginHistory;
+
+  const allowedTabs = useMemo<AdminTab[]>(() => {
+    const list: AdminTab[] = [];
+    if (canFiles) list.push('files');
+    if (canVisitors) list.push('visitors');
+    if (canSeo) list.push('seo');
+    if (canSettings) list.push('settings');
+    if (canAdmins) list.push('admins');
+    if (canHistory) list.push('history');
+    return list;
+  }, [canFiles, canVisitors, canSeo, canSettings, canAdmins, canHistory]);
+
+  useEffect(() => {
+    if (allowedTabs.length > 0 && !allowedTabs.includes(activeTab)) {
+      setActiveTab(allowedTabs[0]);
+    }
+  }, [activeTab, allowedTabs]);
 
   useEffect(() => {
     setDraftSettings(siteSettings);
   }, [siteSettings]);
 
   useEffect(() => {
-    if (!user || !isAdmin || !accessToken) {
+    if (!user || !isAdmin || !canFiles || !accessToken) {
       setDriveInfo(null);
       return;
     }
@@ -268,10 +323,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [user, isAdmin, accessToken, onClearDriveToken]);
+  }, [user, isAdmin, canFiles, accessToken, onClearDriveToken]);
 
   useEffect(() => {
-    if (!user || !isAdmin) {
+    if (!user || !isAdmin || !canFiles) {
       setAdminFiles([]);
       setFilesLoading(false);
       return;
@@ -291,10 +346,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     );
     return () => unsubscribe();
-  }, [user, isAdmin, isBootstrapped]);
+  }, [user, isAdmin, canFiles, isBootstrapped]);
 
   const loadVisitorAnalytics = async () => {
-    if (!user || !isAdmin) return;
+    if (!user || !isAdmin || !canVisitors) return;
     setVisitorsLoading(true);
     setVisitorsError(null);
     try {
@@ -313,7 +368,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   useEffect(() => {
-    if (activeTab !== 'visitors' || !user || !isAdmin) {
+    if (activeTab !== 'visitors' || !user || !isAdmin || !canVisitors) {
       setStreamConnected(false);
       return;
     }
@@ -339,10 +394,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return () => {
       unsubscribeStream();
     };
-  }, [activeTab, user, isAdmin]);
+  }, [activeTab, user, isAdmin, canVisitors]);
 
   const handleQuickToggleShop24Hours = async () => {
-    if (!user || togglingShop24h) return;
+    if (!user || !canSettings || togglingShop24h) return;
     setTogglingShop24h(true);
     setSettingsError(null);
     setSettingsSuccess(null);
@@ -772,7 +827,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleSaveSiteSettings = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    if (!user || !canSettings) return;
     setSavingSettings(true);
     setSettingsError(null);
     setSettingsSuccess(null);
@@ -1006,29 +1061,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   }
 
-  // Signed in with non-admin email
+  // Signed in with non-admin or suspended email
   if (!isAdmin) {
+    const isSuspended = effectiveAccess.isSuspended;
     return (
       <section className="mx-auto max-w-lg px-4 py-12 sm:px-6">
-        <div className="rounded-xl border border-red-200 bg-white p-8">
-          <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-red-50 text-red-600">
+        <div
+          className={`rounded-xl border bg-white p-8 ${
+            isSuspended ? 'border-amber-300' : 'border-red-200'
+          }`}
+        >
+          <div
+            className={`flex h-11 w-11 items-center justify-center rounded-lg ${
+              isSuspended
+                ? 'bg-amber-50 text-amber-700'
+                : 'bg-red-50 text-red-600'
+            }`}
+          >
             <ShieldAlert className="h-5 w-5" />
           </div>
           <h1 className="mt-5 font-display text-xl font-bold text-slate-900">
-            অ্যাডমিন অনুমতি প্রয়োজন
+            {isSuspended
+              ? 'অ্যাডমিন অ্যাক্সেস সাময়িকভাবে স্থগিত করা হয়েছে (Suspended)'
+              : 'অ্যাডমিন অনুমতি প্রয়োজন'}
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
-            আপনি{' '}
-            <span className="font-mono font-medium text-slate-900">
-              {effectiveEmail || user.email || 'অজানা অ্যাকাউন্ট'}
-            </span>{' '}
-            অ্যাকাউন্ট দিয়ে সাইন ইন করেছেন, কিন্তু এই অ্যাকাউন্টে জননী টেলিকম
-            অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টারের অ্যাডমিন অনুমতি নেই।
+            {isSuspended ? (
+              <>
+                আপনি{' '}
+                <span className="font-mono font-medium text-slate-900">
+                  {effectiveEmail || user.email || 'অজানা অ্যাকাউন্ট'}
+                </span>{' '}
+                অ্যাকাউন্ট দিয়ে সাইন ইন করেছেন, কিন্তু প্রধান অ্যাডমিনিস্ট্রেটর
+                এই অ্যাডমিন অ্যাকাউন্টটি সাময়িকভাবে স্থগিত (Suspended) করেছেন।
+              </>
+            ) : (
+              <>
+                আপনি{' '}
+                <span className="font-mono font-medium text-slate-900">
+                  {effectiveEmail || user.email || 'অজানা অ্যাকাউন্ট'}
+                </span>{' '}
+                অ্যাকাউন্ট দিয়ে সাইন ইন করেছেন, কিন্তু এই অ্যাকাউন্টে জননী
+                টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টারের অ্যাডমিন
+                অনুমতি নেই।
+              </>
+            )}
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            অনুমোদিত অ্যাডমিন জিমেইল (<span className="font-mono">sflove087@gmail.com</span>,{' '}
-            <span className="font-mono">jononitelecom266366@gmail.com</span> বা প্রধান অ্যাডমিন)
-            বেছে নিয়ে লগইন করুন।
+            {isSuspended
+              ? 'পুনরায় অ্যাডমিন অ্যাক্সেস চালু করতে প্রধান অ্যাডমিনিস্ট্রেটরের সাথে যোগাযোগ করুন অথবা অনুমোদিত অন্য অ্যাকাউন্ট ব্যবহার করুন।'
+              : 'প্রধান অ্যাডমিনিস্ট্রেটর "অ্যাডমিন ও অ্যাক্সেস কন্ট্রোল" ট্যাব থেকে আপনার জিমেইল যুক্ত করলে অথবা অনুমোদিত অ্যাডমিন জিমেইল বেছে নিলে লগইন করতে পারবেন।'}
           </p>
           <div className="mt-6 flex flex-wrap items-center gap-3">
             {onSwitchAccount && (
@@ -1088,30 +1170,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={handleQuickToggleShop24Hours}
-            disabled={togglingShop24h}
-            title="এক ক্লিকে শপ ২৪ ঘণ্টা খোলা বা বন্ধ করুন"
-            className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 ${
-              siteSettings.shopOpen24Hours
-                ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-                : 'border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
-            }`}
+          {canSettings && (
+            <button
+              type="button"
+              onClick={handleQuickToggleShop24Hours}
+              disabled={togglingShop24h}
+              title="এক ক্লিকে শপ ২৪ ঘণ্টা খোলা বা বন্ধ করুন"
+              className={`inline-flex items-center gap-2 rounded-lg border px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer disabled:opacity-60 ${
+                siteSettings.shopOpen24Hours
+                  ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                  : 'border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100'
+              }`}
+            >
+              {togglingShop24h ? (
+                <LoadingSpinner size="xs" label="আপডেট হচ্ছে..." />
+              ) : (
+                <>
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>
+                    {siteSettings.shopOpen24Hours
+                      ? 'শপ: ২৪ ঘণ্টা খোলা (ON)'
+                      : 'শপ: বন্ধ (OFF)'}
+                  </span>
+                </>
+              )}
+            </button>
+          )}
+
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold ${ADMIN_ROLE_META[effectiveAccess.role].badgeClass}`}
           >
-            {togglingShop24h ? (
-              <LoadingSpinner size="xs" label="আপডেট হচ্ছে..." />
-            ) : (
-              <>
-                <Clock className="h-3.5 w-3.5" />
-                <span>
-                  {siteSettings.shopOpen24Hours
-                    ? 'শপ: ২৪ ঘণ্টা খোলা (ON)'
-                    : 'শপ: বন্ধ (OFF)'}
-                </span>
-              </>
-            )}
-          </button>
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span>{ADMIN_ROLE_META[effectiveAccess.role].label}</span>
+          </span>
 
           <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700">
             <span className="text-slate-500">সাইন ইন: </span>
@@ -1145,106 +1236,130 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       </div>
 
       {/* Admin Navigation Tabs */}
-      <div
-        className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5 print:hidden"
-        role="tablist"
-        aria-label="অ্যাডমিন সেকশনসমূহ"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'files'}
-          onClick={() => setActiveTab('files')}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === 'files'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
+      {allowedTabs.length > 0 ? (
+        <div
+          className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5 print:hidden"
+          role="tablist"
+          aria-label="অ্যাডমিন সেকশনসমূহ"
         >
-          <HardDrive className="h-4 w-4" />
-          <span>ফাইল আপলোড ও ড্রাইভ</span>
-        </button>
+          {canFiles && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'files'}
+              onClick={() => setActiveTab('files')}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'files'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <HardDrive className="h-4 w-4" />
+              <span>ফাইল আপলোড ও ড্রাইভ</span>
+            </button>
+          )}
 
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'visitors'}
-          onClick={() => setActiveTab('visitors')}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === 'visitors'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <BarChart3 className="h-4 w-4" />
-          <span>রিয়েল-টাইম ভিজিটর</span>
-        </button>
+          {canVisitors && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'visitors'}
+              onClick={() => setActiveTab('visitors')}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'visitors'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <BarChart3 className="h-4 w-4" />
+              <span>রিয়েল-টাইম ভিজিটর</span>
+            </button>
+          )}
 
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'seo'}
-          onClick={() => setActiveTab('seo')}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === 'seo'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <Globe className="h-4 w-4" />
-          <span>SEO ও মেটা ট্যাগ</span>
-        </button>
+          {canSeo && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'seo'}
+              onClick={() => setActiveTab('seo')}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'seo'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Globe className="h-4 w-4" />
+              <span>SEO ও মেটা ট্যাগ</span>
+            </button>
+          )}
 
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'settings'}
-          onClick={() => setActiveTab('settings')}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === 'settings'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <Settings className="h-4 w-4" />
-          <span>শপ ২৪ ঘণ্টা, ম্যাপ ও হেডার</span>
-        </button>
+          {canSettings && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'settings'}
+              onClick={() => setActiveTab('settings')}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'settings'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <Settings className="h-4 w-4" />
+              <span>শপ ২৪ ঘণ্টা, ম্যাপ ও হেডার</span>
+            </button>
+          )}
 
-        {isPrimaryAdmin && (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'admins'}
-            onClick={() => setActiveTab('admins')}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-              activeTab === 'admins'
-                ? 'bg-slate-900 text-white'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <ShieldCheck className="h-4 w-4" />
-            <span>অ্যাডমিন ও বাংলা ইমেইল</span>
-          </button>
-        )}
+          {canAdmins && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'admins'}
+              onClick={() => setActiveTab('admins')}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'admins'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              <span>অ্যাডমিন ও অ্যাক্সেস কন্ট্রোল</span>
+            </button>
+          )}
 
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'history'}
-          onClick={() => setActiveTab('history')}
-          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === 'history'
-              ? 'bg-slate-900 text-white'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-          }`}
-        >
-          <History className="h-4 w-4" />
-          <span>লগইন হিস্ট্রি</span>
-        </button>
-      </div>
+          {canHistory && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'history'}
+              onClick={() => setActiveTab('history')}
+              className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <History className="h-4 w-4" />
+              <span>লগইন হিস্ট্রি</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+          <Lock className="mx-auto h-7 w-7 text-amber-600" />
+          <h2 className="mt-2 font-display text-base font-bold text-slate-900">
+            কোনো মডিউল অনুমতি সক্রিয় নেই
+          </h2>
+          <p className="mt-1 text-xs text-slate-600">
+            আপনার অ্যাডমিন অ্যাকাউন্টটি সক্রিয় আছে, তবে এই মুহূর্তে কোনো মডিউল
+            (ফাইল, ভিজিটর, SEO, সেটিংস বা হিস্ট্রি) অ্যাক্সেস চালু নেই। প্রধান
+            অ্যাডমিনিস্ট্রেটরের সাথে যোগাযোগ করুন।
+          </p>
+        </div>
+      )}
 
       {/* TAB 1: DRIVE UPLOAD & CATALOG */}
-      {activeTab === 'files' && (
+      {activeTab === 'files' && canFiles && (
         <div>
           {/* Drive Quota Summary Strip */}
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -1850,7 +1965,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* TAB 2: REAL-TIME VISITOR TRACKING DASHBOARD */}
-      {activeTab === 'visitors' && (
+      {activeTab === 'visitors' && canVisitors && (
         <div className="mt-6 space-y-6">
           {/* Print / PDF Only Report Header */}
           <div className="hidden print:block border-b-2 border-slate-900 pb-4 mb-4">
@@ -2354,7 +2469,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* TAB 3: DYNAMIC SEO META DESCRIPTION & KEYWORDS */}
-      {activeTab === 'seo' && (
+      {activeTab === 'seo' && canSeo && (
         <AdminSeoModule
           uid={user.uid}
           getIdToken={() => user.getIdToken()}
@@ -2362,10 +2477,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         />
       )}
 
-      {/* TAB 5: AUTHORIZED ADMINS & BANGLA GMAIL NOTIFICATION (PRIMARY ADMIN ONLY) */}
-      {activeTab === 'admins' && isPrimaryAdmin && (
+      {/* TAB 5: ADMINISTRATOR ADMIN CREATE, ACCESS CONTROL & BANGLA GMAIL */}
+      {activeTab === 'admins' && canAdmins && (
         <AdminManagementTab
-          currentAdminEmail={user.email || ''}
+          currentAdminUid={user.uid}
+          currentAdminEmail={effectiveEmail || user.email || ''}
           shopName={siteSettings.shopName}
           accessToken={accessToken}
           onConnectWorkspace={() => handleLoginClick('gmail')}
@@ -2374,17 +2490,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       )}
 
       {/* TAB 6: ADMIN LOGIN INFO & HISTORY (DEVICE NAME, IP, PRINT/PDF) */}
-      {activeTab === 'history' && (
+      {activeTab === 'history' && canHistory && (
         <LoginHistoryTab
           user={user}
-          isBootstrapped={Boolean(isPrimaryAdmin)}
+          isBootstrapped={Boolean(effectiveAccess.isPrimary)}
           shopName={siteSettings.shopName}
           hasDriveConnected={Boolean(accessToken)}
         />
       )}
 
       {/* TAB 4: SHOP GOOGLE MAPS ON/OFF, HEADER BG COLOR, ADSENSE & SEO */}
-      {activeTab === 'settings' && (
+      {activeTab === 'settings' && canSettings && (
         <form onSubmit={handleSaveSiteSettings} className="mt-6 space-y-6">
           {settingsError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">

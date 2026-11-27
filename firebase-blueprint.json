@@ -176,6 +176,69 @@
       },
       "required": ["uid", "email", "displayName", "role", "createdAt"]
     },
+    "AdminAccount": {
+      "title": "AdminAccount",
+      "description": "Administrator-created admin account with granular role and access control permissions, keyed by lowercase email.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 160,
+          "pattern": "^[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "role": {
+          "type": "string",
+          "enum": ["super_admin", "admin", "moderator", "viewer"]
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "permissions": {
+          "type": "object",
+          "description": "Granular feature permissions (manageFiles, viewVisitors, manageSeo, manageSettings, viewLoginHistory, manageAdmins)."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "createdByUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdByEmail": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "email",
+        "displayName",
+        "role",
+        "active",
+        "permissions",
+        "createdByUid",
+        "createdByEmail",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
     "SiteSettings": {
       "title": "SiteSettings",
       "description": "Public site configuration managed by Admin (Shop Map toggle & coordinates, Header BG theme, AdSense IDs).",
@@ -507,7 +570,11 @@
     },
     "/admins/{adminUid}": {
       "schema": { "$ref": "#/entities/AdminUser" },
-      "description": "Authorized administrators permitted to upload and manage files."
+      "description": "Legacy UID-indexed authorized administrators."
+    },
+    "/admin_accounts/{emailKey}": {
+      "schema": { "$ref": "#/entities/AdminAccount" },
+      "description": "Administrator-managed admin accounts and granular access control matrix indexed by lowercase email."
     },
     "/site_settings/{settingId}": {
       "schema": { "$ref": "#/entities/SiteSettings" },
