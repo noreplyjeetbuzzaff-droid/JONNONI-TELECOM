@@ -135,22 +135,28 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
 
   // Debounced search visitor tracking + save to localStorage search history
   const lastTrackedSearchRef = useRef('');
+  const triggerImmediateSearchTrack = useCallback((term: string) => {
+    const clean = term.trim().slice(0, 120);
+    if (clean.length < 2) return;
+    if (lastTrackedSearchRef.current !== clean) {
+      lastTrackedSearchRef.current = clean;
+      trackVisitorEvent({
+        type: 'search',
+        path: '/#search-menu',
+        label: clean,
+      });
+    }
+  }, []);
+
   useEffect(() => {
     const trimmed = searchQuery.trim();
     if (trimmed.length < 2) return;
     const timer = setTimeout(() => {
       recordSearchHistory(trimmed);
-      if (lastTrackedSearchRef.current !== trimmed) {
-        lastTrackedSearchRef.current = trimmed;
-        trackVisitorEvent({
-          type: 'search',
-          path: '/#search-menu',
-          label: trimmed,
-        });
-      }
+      triggerImmediateSearchTrack(trimmed);
     }, 900);
     return () => clearTimeout(timer);
-  }, [searchQuery, recordSearchHistory]);
+  }, [searchQuery, recordSearchHistory, triggerImmediateSearchTrack]);
 
   const availableBrands = useMemo(() => {
     const set = new Set<string>();
@@ -447,6 +453,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                       onClick={() => {
                         setSearchQuery(term);
                         recordSearchHistory(term);
+                        triggerImmediateSearchTrack(term);
                       }}
                       className={`inline-flex items-center rounded-md border px-2.5 py-1 font-mono text-xs font-medium transition-colors cursor-pointer ${
                         searchQuery.trim().toLowerCase() === term.toLowerCase()
@@ -480,6 +487,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     recordSearchHistory(searchQuery);
+                    triggerImmediateSearchTrack(searchQuery);
                   }
                 }}
                 placeholder="মডেল (SM-A546E, RMX3710), ব্র্যান্ড বা টুলের নাম..."

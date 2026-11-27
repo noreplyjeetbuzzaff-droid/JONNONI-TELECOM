@@ -156,7 +156,8 @@ service cloud.firestore {
       ])
       && data.keys().hasOnly([
         'type', 'path', 'label', 'device', 'browser', 'os',
-        'referrer', 'visitorHash', 'dayKey', 'createdAt'
+        'referrer', 'visitorHash', 'dayKey', 'ipAddress',
+        'deviceName', 'searchKeyword', 'createdAt'
       ])
       && data.type in ['pageview', 'search', 'download']
       && data.path is string && data.path.size() >= 1 && data.path.size() <= 120
@@ -167,18 +168,52 @@ service cloud.firestore {
       && data.referrer is string && data.referrer.size() <= 180
       && data.visitorHash is string && data.visitorHash.size() >= 4 && data.visitorHash.size() <= 64 && data.visitorHash.matches('^[a-zA-Z0-9_\\-]+$')
       && data.dayKey is string && data.dayKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
+      && (!('ipAddress' in data) || (data.ipAddress is string && data.ipAddress.size() <= 64))
+      && (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 100))
+      && (!('searchKeyword' in data) || (data.searchKeyword is string && data.searchKeyword.size() <= 120))
       && data.createdAt is timestamp;
     }
 
     function isValidVisitorPresence(data) {
       return data.keys().hasAll(['id', 'device', 'browser', 'os', 'path', 'lastSeenAt'])
-      && data.keys().hasOnly(['id', 'device', 'browser', 'os', 'path', 'lastSeenAt'])
+      && data.keys().hasOnly([
+        'id', 'device', 'browser', 'os', 'path',
+        'ipAddress', 'deviceName', 'searchKeyword', 'lastSeenAt'
+      ])
       && data.id is string && data.id.size() >= 4 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
       && data.device in ['mobile', 'desktop', 'tablet']
       && data.browser is string && data.browser.size() >= 1 && data.browser.size() <= 40
       && data.os is string && data.os.size() >= 1 && data.os.size() <= 40
       && data.path is string && data.path.size() >= 1 && data.path.size() <= 120
+      && (!('ipAddress' in data) || (data.ipAddress is string && data.ipAddress.size() <= 64))
+      && (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 100))
+      && (!('searchKeyword' in data) || (data.searchKeyword is string && data.searchKeyword.size() <= 120))
       && data.lastSeenAt is timestamp;
+    }
+
+    function isValidLoginHistory(data) {
+      return data.keys().hasAll([
+        'uid', 'email', 'displayName', 'eventType', 'status',
+        'deviceType', 'deviceName', 'browser', 'os', 'ipAddress',
+        'errorMessage', 'createdAt'
+      ])
+      && data.keys().hasOnly([
+        'uid', 'email', 'displayName', 'eventType', 'status',
+        'deviceType', 'deviceName', 'browser', 'os', 'ipAddress',
+        'errorMessage', 'createdAt'
+      ])
+      && data.uid is string && isValidId(data.uid)
+      && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+      && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+      && data.eventType in ['admin_login', 'drive_connect', 'gmail_connect', 'drive_blocked', 'logout']
+      && data.status in ['success', 'blocked', 'failed']
+      && data.deviceType in ['mobile', 'desktop', 'tablet']
+      && data.deviceName is string && data.deviceName.size() >= 1 && data.deviceName.size() <= 100
+      && data.browser is string && data.browser.size() >= 1 && data.browser.size() <= 40
+      && data.os is string && data.os.size() >= 1 && data.os.size() <= 40
+      && data.ipAddress is string && data.ipAddress.size() >= 1 && data.ipAddress.size() <= 64
+      && data.errorMessage is string && data.errorMessage.size() <= 240
+      && data.createdAt is timestamp;
     }
 
     match /flash_files/{fileId} {
@@ -276,6 +311,21 @@ service cloud.firestore {
         && incoming().lastSeenAt == request.time;
 
       allow delete: if isValidId(sessionId);
+    }
+
+    match /login_history/{entryId} {
+      allow get: if isAdmin() && isValidId(entryId);
+      allow list: if isAdmin();
+
+      allow create: if isAdmin()
+        && isValidId(entryId)
+        && isValidLoginHistory(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().email == request.auth.token.email
+        && incoming().createdAt == request.time;
+
+      allow update: if false;
+      allow delete: if isBootstrappedAdmin() && isValidId(entryId);
     }
   }
 }

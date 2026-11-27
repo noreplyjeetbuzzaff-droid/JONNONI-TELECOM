@@ -3,11 +3,13 @@ import { User } from 'firebase/auth';
 import {
   clearDriveAccessToken,
   getAccessToken,
+  GoogleConsentMode,
   googleSignIn,
   googleSignInRedirect,
   initAuth,
   logout,
 } from './lib/firebase';
+import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
 import {
   checkIsAdmin,
   subscribePublicFlashFiles,
@@ -134,6 +136,21 @@ export default function App() {
             firebaseUser.emailVerified
           );
           setIsAdmin(adminStatus);
+          if (adminStatus) {
+            try {
+              const sessionKey = `jt_login_logged_${firebaseUser.uid}`;
+              if (!sessionStorage.getItem(sessionKey)) {
+                sessionStorage.setItem(sessionKey, '1');
+                recordAdminLoginEvent({
+                  user: firebaseUser,
+                  eventType: 'admin_login',
+                  status: 'success',
+                });
+              }
+            } catch {
+              // ignore sessionStorage failure
+            }
+          }
         } else {
           setIsAdmin(false);
         }
@@ -173,22 +190,72 @@ export default function App() {
     return () => unsubscribeSettings();
   }, []);
 
-  const handleGoogleLogin = async (forceDriveConsent = false) => {
+  const handleGoogleLogin = async (
+    forceDriveConsent: GoogleConsentMode = false
+  ) => {
     setAuthRedirectError(null);
-    const result = await googleSignIn(forceDriveConsent);
-    if (result) {
-      setUser(result.user);
-      setAccessToken(result.accessToken);
-      const adminStatus = await checkIsAdmin(
-        result.user.uid,
-        result.user.email,
-        result.user.emailVerified
-      );
-      setIsAdmin(adminStatus);
+    try {
+      const result = await googleSignIn(forceDriveConsent);
+      if (result) {
+        setUser(result.user);
+        setAccessToken(result.accessToken);
+        const adminStatus = await checkIsAdmin(
+          result.user.uid,
+          result.user.email,
+          result.user.emailVerified
+        );
+        setIsAdmin(adminStatus);
+        if (adminStatus) {
+          if (forceDriveConsent === 'gmail') {
+            recordAdminLoginEvent({
+              user: result.user,
+              eventType: 'gmail_connect',
+              status: 'success',
+            });
+          } else if (
+            forceDriveConsent === true ||
+            forceDriveConsent === 'drive'
+          ) {
+            recordAdminLoginEvent({
+              user: result.user,
+              eventType: 'drive_connect',
+              status: 'success',
+            });
+          } else {
+            try {
+              sessionStorage.setItem(`jt_login_logged_${result.user.uid}`, '1');
+            } catch {
+              // ignore
+            }
+            recordAdminLoginEvent({
+              user: result.user,
+              eventType: 'admin_login',
+              status: 'success',
+            });
+          }
+        }
+      }
+    } catch (err) {
+      if (user && isAdmin && forceDriveConsent) {
+        const msg = err instanceof Error ? err.message : String(err || '');
+        const isBlocked =
+          msg.toLowerCase().includes('access_denied') ||
+          msg.includes('ব্লক') ||
+          msg.toLowerCase().includes('blocked');
+        recordAdminLoginEvent({
+          user,
+          eventType: 'drive_blocked',
+          status: isBlocked ? 'blocked' : 'failed',
+          errorMessage: msg,
+        });
+      }
+      throw err;
     }
   };
 
-  const handleGoogleLoginRedirect = async (forceDriveConsent = false) => {
+  const handleGoogleLoginRedirect = async (
+    forceDriveConsent: GoogleConsentMode = false
+  ) => {
     setAuthRedirectError(null);
     await googleSignInRedirect(forceDriveConsent);
   };
@@ -199,6 +266,18 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
+    if (user && isAdmin) {
+      try {
+        sessionStorage.removeItem(`jt_login_logged_${user.uid}`);
+      } catch {
+        // ignore
+      }
+      await recordAdminLoginEvent({
+        user,
+        eventType: 'logout',
+        status: 'success',
+      });
+    }
     await logout();
     setUser(null);
     setAccessToken(null);
@@ -229,12 +308,14 @@ export default function App() {
         </div>
       )}
 
-      <Navbar
-        activeView={activeView}
-        onNavigateView={setActiveView}
-        isAdminSignedIn={Boolean(user && isAdmin)}
-        headerBgTheme={siteSettings.headerBgTheme}
-      />
+      <div className="print:hidden">
+        <Navbar
+          activeView={activeView}
+          onNavigateView={setActiveView}
+          isAdminSignedIn={Boolean(user && isAdmin)}
+          headerBgTheme={siteSettings.headerBgTheme}
+        />
+      </div>
 
       <main className="flex-1">
         {activeView === 'catalog' ? (
@@ -261,7 +342,7 @@ export default function App() {
         )}
       </main>
 
-      <footer className="border-t border-slate-200 bg-white">
+      <footer className="border-t border-slate-200 bg-white print:hidden">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 text-xs text-slate-500 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="font-medium text-slate-700">

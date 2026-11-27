@@ -24,9 +24,12 @@ const ACTIVE_SESSION_TTL_MS = 45_000;
 interface ActiveVisitorSession {
   id: string;
   device: 'mobile' | 'desktop' | 'tablet';
+  deviceName?: string;
   browser: string;
   os: string;
   path: string;
+  ipAddress?: string;
+  searchKeyword?: string;
   lastSeenMs: number;
 }
 
@@ -36,8 +39,11 @@ interface VisitorEvent {
   path: string;
   label: string;
   device: 'mobile' | 'desktop' | 'tablet';
+  deviceName?: string;
   browser: string;
   os: string;
+  ipAddress?: string;
+  searchKeyword?: string;
   referrer: string;
   timestamp: string;
 }
@@ -243,6 +249,16 @@ function hashVisitorKey(req: express.Request, clientVisitorId?: string): string 
   return crypto.createHash('sha256').update(basis).digest('hex').slice(0, 20);
 }
 
+function getCleanRequestIp(req: express.Request): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  const rawIp = Array.isArray(forwarded)
+    ? forwarded[0]
+    : typeof forwarded === 'string'
+      ? forwarded.split(',')[0].trim()
+      : req.socket.remoteAddress || 'Unknown';
+  return rawIp.replace(/^::ffff:/i, '').slice(0, 64) || 'Unknown';
+}
+
 async function recordEvent(params: {
   type: 'pageview' | 'search' | 'download';
   path: string;
@@ -250,10 +266,13 @@ async function recordEvent(params: {
   referrer: string;
   req: express.Request;
   visitorId?: string;
+  deviceName?: string;
+  searchKeyword?: string;
 }) {
   const data = await loadAnalytics();
   const ua = String(params.req.headers['user-agent'] || '');
   const { device, browser, os } = parseUserAgent(ua);
+  const ipAddress = getCleanRequestIp(params.req);
   const vHash = hashVisitorKey(params.req, params.visitorId);
   const dayKey = getTodayKey();
 
@@ -308,8 +327,14 @@ async function recordEvent(params: {
     path: params.path.slice(0, 120),
     label: params.label.slice(0, 120),
     device,
+    deviceName: params.deviceName?.slice(0, 100),
     browser,
     os,
+    ipAddress,
+    searchKeyword:
+      params.type === 'search'
+        ? params.label.slice(0, 120)
+        : params.searchKeyword?.slice(0, 120),
     referrer: params.referrer.slice(0, 160),
     timestamp: new Date().toISOString(),
   };
@@ -353,9 +378,12 @@ function buildVisitorSummaryPayload(data: StoredAnalytics) {
     .map((s) => ({
       id: s.id,
       device: s.device,
+      deviceName: s.deviceName,
       browser: s.browser,
       os: s.os,
       path: s.path,
+      ipAddress: s.ipAddress,
+      searchKeyword: s.searchKeyword,
       lastActiveSecondsAgo: Math.max(0, Math.round((now - s.lastSeenMs) / 1000)),
     }));
 
@@ -663,6 +691,30 @@ async function createServer() {
       .send('google-site-verification: google4c5053fb0dbbad06.html\n');
   });
 
+  // Admin: Client IP & Device Info for Login Info History
+  app.get('/api/client-info', async (req, res) => {
+    const admin = await verifyAdminBearerToken(req.headers.authorization);
+    if (!admin) {
+      res.status(401).json({ error: 'অ্যাডমিন অনুমোদন প্রয়োজন।' });
+      return;
+    }
+    const forwarded = req.headers['x-forwarded-for'];
+    const rawIp = Array.isArray(forwarded)
+      ? forwarded[0]
+      : typeof forwarded === 'string'
+        ? forwarded.split(',')[0].trim()
+        : req.socket.remoteAddress || 'Unknown';
+    const cleanIp = rawIp.replace(/^::ffff:/i, '').slice(0, 64) || 'Unknown';
+    const ua = String(req.headers['user-agent'] || '');
+    const { device, browser, os } = parseUserAgent(ua);
+    res.json({
+      ipAddress: cleanIp,
+      device,
+      browser,
+      os,
+    });
+  });
+
   // Admin: sync AdSense publisher ID for ads.txt
   app.post('/api/admin/ads-config', async (req, res) => {
     const admin = await verifyAdminBearerToken(req.headers.authorization);
@@ -685,6 +737,11 @@ async function createServer() {
     res.json({ ok: true });
   });
 
+  // Visitor: Return caller's own public/forwarded IP for analytics capture
+  app.get('/api/visitor-ip', (req, res) => {
+    res.json({ ipAddress: getCleanRequestIp(req) });
+  });
+
   // Visitor Tracking: Record event
   app.post('/api/analytics/track', async (req, res) => {
     const rawType = req.body?.type;
@@ -705,6 +762,14 @@ async function createServer() {
       typeof req.body?.visitorId === 'string' ? req.body.visitorId : undefined;
     const referrer =
       typeof req.body?.referrer === 'string' ? req.body.referrer : 'Direct';
+    const deviceName =
+      typeof req.body?.deviceName === 'string'
+        ? req.body.deviceName.slice(0, 100)
+        : undefined;
+    const searchKeyword =
+      typeof req.body?.searchKeyword === 'string'
+        ? req.body.searchKeyword.slice(0, 120)
+        : undefined;
 
     await recordEvent({
       type: rawType,
@@ -713,6 +778,8 @@ async function createServer() {
       referrer,
       req,
       visitorId,
+      deviceName,
+      searchKeyword,
     });
     res.status(204).end();
   });
@@ -725,18 +792,31 @@ async function createServer() {
       typeof req.body?.path === 'string'
         ? req.body.path.slice(0, 120)
         : '/';
+    const deviceName =
+      typeof req.body?.deviceName === 'string'
+        ? req.body.deviceName.slice(0, 100)
+        : undefined;
+    const searchKeyword =
+      typeof req.body?.searchKeyword === 'string'
+        ? req.body.searchKeyword.slice(0, 120)
+        : undefined;
     const ua = String(req.headers['user-agent'] || '');
     const { device, browser, os } = parseUserAgent(ua);
+    const ipAddress = getCleanRequestIp(req);
     const sessionKey = hashVisitorKey(req, visitorId);
     const prev = activeSessions.get(sessionKey);
-    const shouldBroadcast = !prev || prev.path !== currentPath;
+    const shouldBroadcast =
+      !prev || prev.path !== currentPath || prev.searchKeyword !== searchKeyword;
 
     activeSessions.set(sessionKey, {
       id: sessionKey.slice(0, 8),
       device,
+      deviceName,
       browser,
       os,
       path: currentPath,
+      ipAddress,
+      searchKeyword: searchKeyword || prev?.searchKeyword,
       lastSeenMs: Date.now(),
     });
 

@@ -335,6 +335,18 @@
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
         },
+        "ipAddress": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "deviceName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "searchKeyword": {
+          "type": "string",
+          "maxLength": 120
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -383,12 +395,101 @@
           "minLength": 1,
           "maxLength": 120
         },
+        "ipAddress": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "deviceName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "searchKeyword": {
+          "type": "string",
+          "maxLength": 120
+        },
         "lastSeenAt": {
           "type": "string",
           "format": "date-time"
         }
       },
       "required": ["id", "device", "browser", "os", "path", "lastSeenAt"]
+    },
+    "LoginHistoryEntry": {
+      "title": "LoginHistoryEntry",
+      "description": "Audit log of admin sign-ins, Google Drive/Gmail connection attempts, device model, and IP address.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "eventType": {
+          "type": "string",
+          "enum": ["admin_login", "drive_connect", "gmail_connect", "drive_blocked", "logout"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success", "blocked", "failed"]
+        },
+        "deviceType": {
+          "type": "string",
+          "enum": ["mobile", "desktop", "tablet"]
+        },
+        "deviceName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "browser": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "os": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "ipAddress": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "errorMessage": {
+          "type": "string",
+          "maxLength": 240
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "displayName",
+        "eventType",
+        "status",
+        "deviceType",
+        "deviceName",
+        "browser",
+        "os",
+        "ipAddress",
+        "errorMessage",
+        "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -411,6 +512,10 @@
     "/visitor_presence/{sessionId}": {
       "schema": { "$ref": "#/entities/VisitorPresence" },
       "description": "Active visitor presence sessions readable only by admins."
+    },
+    "/login_history/{entryId}": {
+      "schema": { "$ref": "#/entities/LoginHistoryEntry" },
+      "description": "Admin login info and audit history with device name and IP address, readable only by admins."
     }
   }
 }

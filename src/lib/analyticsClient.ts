@@ -13,6 +13,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import { detectClientDeviceInfo } from './loginHistoryRepo';
 import {
   ActiveVisitorInfo,
   DailyVisitorPoint,
@@ -25,13 +26,32 @@ const EVENTS_COLLECTION = 'visitor_events';
 const PRESENCE_COLLECTION = 'visitor_presence';
 const PRESENCE_TTL_MS = 65_000;
 
+let cachedVisitorIpPromise: Promise<string> | null = null;
+let latestSearchKeyword = '';
+
+function getVisitorIpAddress(): Promise<string> {
+  if (!cachedVisitorIpPromise) {
+    cachedVisitorIpPromise = fetch('/api/visitor-ip')
+      .then(async (res) => {
+        if (!res.ok) return 'Unavailable';
+        const data = (await res.json()) as { ipAddress?: string };
+        return (data.ipAddress || 'Unavailable').slice(0, 64);
+      })
+      .catch(() => 'Unavailable');
+  }
+  return cachedVisitorIpPromise;
+}
+
 interface FirestoreEventDoc {
   type: 'pageview' | 'search' | 'download';
   path: string;
   label: string;
   device: 'mobile' | 'desktop' | 'tablet';
+  deviceName?: string;
   browser: string;
   os: string;
+  ipAddress?: string;
+  searchKeyword?: string;
   referrer: string;
   visitorHash: string;
   dayKey: string;
@@ -41,9 +61,12 @@ interface FirestoreEventDoc {
 interface FirestorePresenceDoc {
   id: string;
   device: 'mobile' | 'desktop' | 'tablet';
+  deviceName?: string;
   browser: string;
   os: string;
   path: string;
+  ipAddress?: string;
+  searchKeyword?: string;
   lastSeenAt?: Timestamp | null;
 }
 
@@ -120,11 +143,25 @@ export async function trackVisitorEvent(payload: {
     .trim()
     .slice(0, 120) || '/';
   const cleanLabel = (payload.label || '').trim().slice(0, 120);
+  if (payload.type === 'search' && cleanLabel) {
+    latestSearchKeyword = cleanLabel;
+  }
+  const activeKeyword =
+    payload.type === 'search' ? cleanLabel : latestSearchKeyword;
   const referrer =
     typeof document !== 'undefined' && document.referrer
       ? document.referrer.slice(0, 180)
       : 'Direct';
-  const { device, browser, os } = parseClientUserAgent();
+  const fallbackInfo = parseClientUserAgent();
+  const [deviceInfo, ipAddress] = await Promise.all([
+    detectClientDeviceInfo().catch(() => ({
+      deviceType: fallbackInfo.device,
+      deviceName: 'Unknown Device',
+      browser: fallbackInfo.browser,
+      os: fallbackInfo.os,
+    })),
+    getVisitorIpAddress(),
+  ]);
   const eventId = `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
   // 1) Persist directly to Firestore (works on AI Studio AND Vercel)
@@ -133,9 +170,12 @@ export async function trackVisitorEvent(payload: {
       type: payload.type,
       path: cleanPath,
       label: cleanLabel,
-      device,
-      browser: browser.slice(0, 40),
-      os: os.slice(0, 40),
+      device: deviceInfo.deviceType,
+      deviceName: deviceInfo.deviceName.slice(0, 100),
+      browser: deviceInfo.browser.slice(0, 40),
+      os: deviceInfo.os.slice(0, 40),
+      ipAddress: ipAddress.slice(0, 64),
+      searchKeyword: activeKeyword.slice(0, 120),
       referrer,
       visitorHash: visitorId.slice(0, 64),
       dayKey: getTodayKey(),
@@ -157,6 +197,8 @@ export async function trackVisitorEvent(payload: {
         label: cleanLabel,
         visitorId,
         referrer,
+        deviceName: deviceInfo.deviceName.slice(0, 100),
+        searchKeyword: activeKeyword.slice(0, 120),
       }),
     });
   } catch {
@@ -187,9 +229,12 @@ function buildSummaryFromFirestore(
       return {
         id: p.id.slice(-8),
         device: p.device,
+        deviceName: p.deviceName,
         browser: p.browser,
         os: p.os,
         path: p.path,
+        ipAddress: p.ipAddress,
+        searchKeyword: p.searchKeyword,
         lastActiveSecondsAgo: Math.max(0, Math.round((nowMs - seenMs) / 1000)),
       };
     });
@@ -252,15 +297,18 @@ function buildSummaryFromFirestore(
       }
     }
 
-    if (recentEvents.length < 25) {
+    if (recentEvents.length < 30) {
       recentEvents.push({
         id,
         type: data.type,
         path: data.path,
         label: data.label,
         device: data.device,
+        deviceName: data.deviceName,
         browser: data.browser,
         os: data.os,
+        ipAddress: data.ipAddress,
+        searchKeyword: data.searchKeyword,
         referrer: data.referrer || 'Direct',
         timestamp: data.createdAt
           ? data.createdAt.toDate().toISOString()
@@ -357,7 +405,7 @@ export function startVisitorPresence(getPath: () => string): () => void {
   const visitorId = getOrCreateVisitorId();
   let stopped = false;
 
-  const sendHeartbeat = () => {
+  const sendHeartbeat = async () => {
     if (stopped) return;
     if (
       typeof document !== 'undefined' &&
@@ -365,16 +413,29 @@ export function startVisitorPresence(getPath: () => string): () => void {
     ) {
       return;
     }
-    const { device, browser, os } = parseClientUserAgent();
+    const fallback = parseClientUserAgent();
+    const [deviceInfo, ipAddress] = await Promise.all([
+      detectClientDeviceInfo().catch(() => ({
+        deviceType: fallback.device,
+        deviceName: 'Unknown Device',
+        browser: fallback.browser,
+        os: fallback.os,
+      })),
+      getVisitorIpAddress(),
+    ]);
+    if (stopped) return;
     const cleanPath = (getPath() || '/').slice(0, 120) || '/';
 
     // Write presence to Firestore (real-time across Vercel & AI Studio)
     setDoc(doc(db, PRESENCE_COLLECTION, visitorId), {
       id: visitorId,
-      device,
-      browser: browser.slice(0, 40),
-      os: os.slice(0, 40),
+      device: deviceInfo.deviceType,
+      deviceName: deviceInfo.deviceName.slice(0, 100),
+      browser: deviceInfo.browser.slice(0, 40),
+      os: deviceInfo.os.slice(0, 40),
       path: cleanPath,
+      ipAddress: ipAddress.slice(0, 64),
+      searchKeyword: latestSearchKeyword.slice(0, 120),
       lastSeenAt: serverTimestamp(),
     }).catch(() => {});
 
@@ -383,7 +444,12 @@ export function startVisitorPresence(getPath: () => string): () => void {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       keepalive: true,
-      body: JSON.stringify({ visitorId, path: cleanPath }),
+      body: JSON.stringify({
+        visitorId,
+        path: cleanPath,
+        deviceName: deviceInfo.deviceName.slice(0, 100),
+        searchKeyword: latestSearchKeyword.slice(0, 120),
+      }),
     }).catch(() => {});
   };
 

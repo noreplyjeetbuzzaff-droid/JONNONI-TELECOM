@@ -25,17 +25,30 @@ provider.setCustomParameters({
   prompt: 'select_account',
 });
 
+export const DRIVE_ONLY_SCOPES = [
+  'https://www.googleapis.com/auth/drive.file',
+] as const;
+
 export const WORKSPACE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/gmail.send',
 ] as const;
 
-// Separate provider used when connecting Google Drive storage & Gmail notifications
+// Drive-only provider (minimal scope to reduce OAuth consent blocks)
 const driveConsentProvider = new GoogleAuthProvider();
-for (const scope of WORKSPACE_SCOPES) {
+for (const scope of DRIVE_ONLY_SCOPES) {
   driveConsentProvider.addScope(scope);
 }
 driveConsentProvider.setCustomParameters({
+  prompt: 'consent select_account',
+});
+
+// Workspace provider for sending Gmail notifications alongside Drive
+const gmailConsentProvider = new GoogleAuthProvider();
+for (const scope of WORKSPACE_SCOPES) {
+  gmailConsentProvider.addScope(scope);
+}
+gmailConsentProvider.setCustomParameters({
   prompt: 'consent select_account',
 });
 
@@ -56,6 +69,15 @@ export function isBootstrappedAdminEmail(
   const normalized = email.trim().toLowerCase();
   return BOOTSTRAPPED_ADMIN_EMAILS.some(
     (adminEmail) => adminEmail.toLowerCase() === normalized
+  );
+}
+
+export function isPrimaryAdminEmail(
+  email: string | null | undefined
+): boolean {
+  if (!email) return false;
+  return (
+    email.trim().toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL.toLowerCase()
   );
 }
 
@@ -158,6 +180,15 @@ function formatAuthErrorMessage(err: unknown): string {
   ) {
     return 'Firebase Authentication-এ Google Sign-In অথবা এই ডোমেইন অনুমোদিত নয়। অনুগ্রহ করে Firebase Console যাচাই করুন।';
   }
+  const lowerMsg = rawMessage.toLowerCase();
+  if (
+    lowerMsg.includes('access_denied') ||
+    lowerMsg.includes('blocked') ||
+    lowerMsg.includes('admin_policy_enforced') ||
+    lowerMsg.includes('org_internal')
+  ) {
+    return 'গুগল OAuth অনুমতি ব্লক হয়েছে (Error 403: access_denied)। অ্যাপটি Google Cloud OAuth "Testing" মোডে থাকলে শুধুমাত্র Test Users তালিকার জিমেইল থেকেই Drive/Gmail সংযুক্ত করা যায়। প্রধান অ্যাডমিন (noreply.jeetbuzzaff@gmail.com) Google Cloud Console-এ আপনার ইমেইলটি Test User হিসেবে যুক্ত করলে এটি ঠিক হয়ে যাবে—অথবা নিচের "ড্রাইভ লিংক দিয়ে ফাইল প্রকাশ" অপশন ব্যবহার করতে পারেন।';
+  }
   return rawMessage || 'গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
 }
 
@@ -232,13 +263,25 @@ export const initAuth = (
   });
 };
 
+export type GoogleConsentMode = boolean | 'drive' | 'gmail';
+
+function resolveProviderForConsent(
+  consentMode: GoogleConsentMode
+): GoogleAuthProvider {
+  if (consentMode === 'gmail') return gmailConsentProvider;
+  if (consentMode === true || consentMode === 'drive') {
+    return driveConsentProvider;
+  }
+  return provider;
+}
+
 export const googleSignIn = async (
-  forceConsent = false
+  forceConsent: GoogleConsentMode = false
 ): Promise<{
   user: User;
   accessToken: string | null;
 } | null> => {
-  const activeProvider = forceConsent ? driveConsentProvider : provider;
+  const activeProvider = resolveProviderForConsent(forceConsent);
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, activeProvider);
@@ -278,9 +321,9 @@ export const googleSignIn = async (
 };
 
 export const googleSignInRedirect = async (
-  forceConsent = false
+  forceConsent: GoogleConsentMode = false
 ): Promise<void> => {
-  const activeProvider = forceConsent ? driveConsentProvider : provider;
+  const activeProvider = resolveProviderForConsent(forceConsent);
   try {
     await signInWithRedirect(auth, activeProvider);
   } catch (err: unknown) {

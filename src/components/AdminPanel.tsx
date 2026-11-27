@@ -8,11 +8,14 @@ import {
   Clock,
   Compass,
   Copy,
+  Download,
   ExternalLink,
   FileUp,
   FolderOpen,
   Globe,
   HardDrive,
+  History,
+  Link2,
   Lock,
   LogOut,
   MapPin,
@@ -20,6 +23,7 @@ import {
   Monitor,
   Palette,
   Pencil,
+  Printer,
   Radio,
   RefreshCw,
   RotateCcw,
@@ -78,13 +82,18 @@ import {
   setDrivePublicPermission,
   uploadFileToDrive,
 } from '../lib/googleDrive';
-import { isBootstrappedAdminEmail } from '../lib/firebase';
+import {
+  GoogleConsentMode,
+  isBootstrappedAdminEmail,
+  isPrimaryAdminEmail,
+} from '../lib/firebase';
 import { AdminManagementTab } from './AdminManagementTab';
 import { AdminSeoModule } from './AdminSeoModule';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EditFileModal } from './EditFileModal';
 import { LoadingSpinner } from './LoadingSpinner';
+import { LoginHistoryTab } from './LoginHistoryTab';
 import { ShopMapSection } from './ShopMapSection';
 
 interface AdminPanelProps {
@@ -94,8 +103,8 @@ interface AdminPanelProps {
   authChecking: boolean;
   authRedirectError?: string | null;
   siteSettings: SiteSettings;
-  onGoogleLogin: (forceDriveConsent?: boolean) => Promise<void>;
-  onGoogleLoginRedirect?: (forceDriveConsent?: boolean) => Promise<void>;
+  onGoogleLogin: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
+  onGoogleLoginRedirect?: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
   onClearDriveToken?: () => void;
   onLogout: () => Promise<void>;
 }
@@ -110,7 +119,27 @@ function isDriveScopeOrAuthError(err: unknown): boolean {
   );
 }
 
-type AdminTab = 'files' | 'visitors' | 'seo' | 'settings' | 'admins';
+function extractGoogleDriveFileId(rawInput: string): string | null {
+  const trimmed = rawInput.trim();
+  if (!trimmed) return null;
+  if (/^[a-zA-Z0-9_-]{10,120}$/.test(trimmed)) {
+    return trimmed;
+  }
+  const pathMatch = trimmed.match(/\/(?:file\/)?d\/([a-zA-Z0-9_-]{5,120})/);
+  if (pathMatch?.[1]) return pathMatch[1];
+  try {
+    const url = new URL(trimmed);
+    const idParam = url.searchParams.get('id');
+    if (idParam && /^[a-zA-Z0-9_-]{5,120}$/.test(idParam)) {
+      return idParam;
+    }
+  } catch {
+    // not a valid URL
+  }
+  return null;
+}
+
+type AdminTab = 'files' | 'visitors' | 'seo' | 'settings' | 'admins' | 'history';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   user,
@@ -140,6 +169,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Upload form state
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadMode, setUploadMode] = useState<'file' | 'link'>('file');
+  const [driveLinkInput, setDriveLinkInput] = useState('');
+  const [linkFileName, setLinkFileName] = useState('');
+  const [linkFileSizeMb, setLinkFileSizeMb] = useState('0');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [brandSelect, setBrandSelect] = useState<string>('Samsung');
   const [customBrand, setCustomBrand] = useState<string>('');
@@ -184,6 +217,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [loggingOut, setLoggingOut] = useState(false);
 
   const isBootstrapped = isBootstrappedAdminEmail(user?.email);
+  const isPrimaryAdmin = isPrimaryAdminEmail(user?.email);
+
+  useEffect(() => {
+    if (activeTab === 'admins' && !isPrimaryAdmin) {
+      setActiveTab('files');
+    }
+  }, [activeTab, isPrimaryAdmin]);
 
   useEffect(() => {
     setDraftSettings(siteSettings);
@@ -338,7 +378,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     );
   }, [adminFiles, adminSearch]);
 
-  const handleLoginClick = async (forceDriveConsent = false) => {
+  const handleLoginClick = async (
+    forceDriveConsent: GoogleConsentMode = false
+  ) => {
     setLoggingIn(true);
     setLoginError(null);
     try {
@@ -375,17 +417,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setUploadError(null);
     setUploadSuccess(null);
 
-    if (!user || !accessToken) {
-      setUploadError(
-        'গুগল ড্রাইভ সেশন শেষ হয়েছে। অনুগ্রহ করে পুনরায় গুগল দিয়ে সাইন ইন করুন।'
-      );
-      return;
-    }
-
-    if (!selectedFile) {
-      setUploadError(
-        'অনুগ্রহ করে যেকোনো ফ্ল্যাশ টুল, ফার্মওয়্যার বা ড্রাইভার ফাইল নির্বাচন করুন।'
-      );
+    if (!user) {
+      setUploadError('অনুগ্রহ করে পুনরায় গুগল দিয়ে সাইন ইন করুন।');
       return;
     }
 
@@ -400,6 +433,92 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
 
+    const parsedPrice = Math.max(0, Number(price) || 0);
+
+    if (uploadMode === 'link') {
+      const parsedDriveId = extractGoogleDriveFileId(driveLinkInput);
+      if (!parsedDriveId) {
+        setUploadError(
+          'সঠিক Google Drive লিংক বা File ID দিন (যেমন: https://drive.google.com/file/d/1ABC.../view)।'
+        );
+        return;
+      }
+      const finalFileName =
+        linkFileName.trim() ||
+        `${finalBrand}_${model.trim().replace(/\s+/g, '_')}.zip`.slice(0, 200);
+      const finalTitle =
+        title.trim() ||
+        `${finalBrand} ${model.trim()} ${finalFileName}`.slice(0, 160);
+      if (finalTitle.length < 2) {
+        setUploadError('ফাইলের শিরোনাম কমপক্ষে ২ অক্ষরের হতে হবে।');
+        return;
+      }
+      const mbVal = Math.max(0, Number(linkFileSizeMb) || 0);
+      const sizeBytes = Math.round(mbVal * 1024 * 1024);
+
+      setUploading(true);
+      setUploadProgress(50);
+      try {
+        setUploadStatus('ক্যাটালগে ড্রাইভ লিংক সংরক্ষণ হচ্ছে...');
+        await createFlashFileRecord({
+          title: finalTitle,
+          brand: finalBrand,
+          model: model.trim(),
+          category,
+          chipset,
+          version: version.trim() || 'Universal',
+          fileName: finalFileName,
+          fileSizeBytes: sizeBytes,
+          driveFileId: parsedDriveId,
+          downloadUrl: `https://drive.google.com/uc?export=download&id=${parsedDriveId}`,
+          viewUrl: `https://drive.google.com/file/d/${parsedDriveId}/view`,
+          notes: notes.trim(),
+          price: parsedPrice,
+          isPublicDrive: makePublic,
+          uploadedByUid: user.uid,
+          uploadedByName: user.displayName || 'জননী টেলিকম অ্যাডমিন',
+        });
+
+        setUploadProgress(100);
+        setUploadSuccess(
+          `"${finalTitle}" সফলভাবে Google Drive লিংকসহ ক্যাটালগে প্রকাশ করা হয়েছে।`
+        );
+        setDriveLinkInput('');
+        setLinkFileName('');
+        setLinkFileSizeMb('0');
+        setModel('');
+        setTitle('');
+        setVersion('');
+        setPrice('0');
+        setNotes('');
+        setUploadProgress(0);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error
+            ? err.message
+            : 'ফাইল সংরক্ষণ ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।'
+        );
+      } finally {
+        setUploading(false);
+        setUploadStatus(null);
+      }
+      return;
+    }
+
+    if (!accessToken) {
+      setUploadError(
+        'গুগল ড্রাইভ সেশন নেই। "গুগল ড্রাইভ সংযুক্ত করুন" চাপুন অথবা উপরের "ড্রাইভ লিংক দিয়ে প্রকাশ" ট্যাব ব্যবহার করুন।'
+      );
+      return;
+    }
+
+    if (!selectedFile) {
+      setUploadError(
+        'অনুগ্রহ করে যেকোনো ফ্ল্যাশ টুল, ফার্মওয়্যার বা ড্রাইভার ফাইল নির্বাচন করুন।'
+      );
+      return;
+    }
+
     const finalTitle =
       title.trim() ||
       `${finalBrand} ${model.trim()} ${selectedFile.name}`.slice(0, 160);
@@ -407,8 +526,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setUploadError('ফাইলের শিরোনাম কমপক্ষে ২ অক্ষরের হতে হবে।');
       return;
     }
-
-    const parsedPrice = Math.max(0, Number(price) || 0);
 
     setUploading(true);
     setUploadProgress(0);
@@ -543,6 +660,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } finally {
       setResettingVisitors(false);
     }
+  };
+
+  const handlePrintVisitorAnalytics = () => {
+    window.print();
+  };
+
+  const handleExportVisitorCsv = () => {
+    if (!visitorSummary) return;
+    const escapeCsv = (value: string) =>
+      `"${String(value || '').replace(/"/g, '""')}"`;
+
+    const headers = [
+      'সময়',
+      'ধরন',
+      'সার্চ কীওয়ার্ড / বিবরণ',
+      'ফোন / ডিভাইস নাম',
+      'OS',
+      'ব্রাউজার',
+      'IP ঠিকানা',
+      'সোর্স',
+    ];
+
+    const rows = visitorSummary.recentEvents.map((ev) => {
+      const eventTypeLabel =
+        ev.type === 'download'
+          ? 'ডাউনলোড'
+          : ev.type === 'search'
+            ? 'সার্চ'
+            : 'ভিজিট';
+      const deviceTypeLabel =
+        ev.device === 'mobile'
+          ? 'মোবাইল'
+          : ev.device === 'tablet'
+            ? 'ট্যাবলেট'
+            : 'ডেস্কটপ';
+      return [
+        new Date(ev.timestamp).toLocaleString('bn-BD'),
+        eventTypeLabel,
+        ev.searchKeyword || ev.label || ev.path,
+        ev.deviceName || deviceTypeLabel,
+        ev.os,
+        ev.browser,
+        ev.ipAddress || '—',
+        ev.referrer || 'Direct',
+      ]
+        .map(escapeCsv)
+        .join(',');
+    });
+
+    const csv = `\uFEFF${[headers.map(escapeCsv).join(','), ...rows].join('\n')}`;
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `visitor-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleUseMyLocation = () => {
@@ -834,7 +1010,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   return (
     <section className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Admin Header & Session Strip */}
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between print:hidden">
         <div>
           <p className="text-xs font-medium text-slate-500">
             জননী টেলিকম অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টার · অ্যাডমিন কনসোল
@@ -903,7 +1079,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Admin Navigation Tabs */}
       <div
-        className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5"
+        className="mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-1.5 print:hidden"
         role="tablist"
         aria-label="অ্যাডমিন সেকশনসমূহ"
       >
@@ -967,19 +1143,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <span>শপ ২৪ ঘণ্টা, ম্যাপ ও হেডার</span>
         </button>
 
+        {isPrimaryAdmin && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === 'admins'}
+            onClick={() => setActiveTab('admins')}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+              activeTab === 'admins'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+            }`}
+          >
+            <ShieldCheck className="h-4 w-4" />
+            <span>অ্যাডমিন ও বাংলা ইমেইল</span>
+          </button>
+        )}
+
         <button
           type="button"
           role="tab"
-          aria-selected={activeTab === 'admins'}
-          onClick={() => setActiveTab('admins')}
+          aria-selected={activeTab === 'history'}
+          onClick={() => setActiveTab('history')}
           className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-            activeTab === 'admins'
+            activeTab === 'history'
               ? 'bg-slate-900 text-white'
               : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
           }`}
         >
-          <ShieldCheck className="h-4 w-4" />
-          <span>অ্যাডমিন ও বাংলা ইমেইল</span>
+          <History className="h-4 w-4" />
+          <span>লগইন হিস্ট্রি</span>
         </button>
       </div>
 
@@ -1053,16 +1246,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 গুগল ড্রাইভে আপলোড করুন।
               </p>
 
-              {!accessToken && (
+              {/* Upload Mode Toggle */}
+              <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadMode('file');
+                    setUploadError(null);
+                  }}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                    uploadMode === 'file'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  <span>সরাসরি আপলোড</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUploadMode('link');
+                    setUploadError(null);
+                  }}
+                  className={`inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                    uploadMode === 'link'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Link2 className="h-3.5 w-3.5" />
+                  <span>ড্রাইভ লিংক দিয়ে প্রকাশ</span>
+                </button>
+              </div>
+
+              {uploadMode === 'file' && !accessToken && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900 space-y-2.5">
                   <p className="leading-relaxed">
-                    গুগল ড্রাইভে নতুন ফাইল আপলোড করতে ড্রাইভ অনুমতি সচল করুন।
+                    গুগল ড্রাইভে সরাসরি ফাইল আপলোড করতে ড্রাইভ অনুমতি সচল করুন।
                   </p>
                   {loginError && (
-                    <p className="text-red-700 font-medium">{loginError}</p>
+                    <p className="rounded border border-red-200 bg-red-50 p-2 text-red-700 font-medium leading-relaxed">
+                      {loginError}
+                    </p>
                   )}
                   <GoogleSignInButton
-                    onClick={() => handleLoginClick(true)}
+                    onClick={() => handleLoginClick('drive')}
                     disabled={loggingIn}
                     label={
                       loggingIn
@@ -1070,6 +1299,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         : 'গুগল ড্রাইভ সংযুক্ত করুন'
                     }
                   />
+                  <div className="rounded border border-amber-300/80 bg-white/80 p-2.5 text-[11px] leading-relaxed text-amber-950 space-y-1.5">
+                    <p className="font-semibold">
+                      Google Drive &quot;Blocked / Access Denied&quot; দেখালে সমাধান:
+                    </p>
+                    <p>
+                      প্রধান অ্যাডমিন ({'noreply.jeetbuzzaff@gmail.com'}) Google Cloud Console-এর{' '}
+                      <span className="font-semibold">OAuth Audience → Test users</span>{' '}
+                      তালিকায়{' '}
+                      <span className="font-mono font-semibold">
+                        {user.email}
+                      </span>{' '}
+                      যোগ করলে ব্লক উঠে যাবে। অথবা এখনই{' '}
+                      <button
+                        type="button"
+                        onClick={() => setUploadMode('link')}
+                        className="font-semibold text-sky-700 underline cursor-pointer"
+                      >
+                        &quot;ড্রাইভ লিংক দিয়ে প্রকাশ&quot;
+                      </button>{' '}
+                      মোডে কাজ চালিয়ে যান।
+                    </p>
+                    <a
+                      href={`https://console.cloud.google.com/auth/audience?project=${firebaseConfig.projectId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-semibold text-amber-900 underline hover:text-amber-700"
+                    >
+                      <ExternalLink className="h-3 w-3" />
+                      <span>Google Cloud Test Users খুলুন</span>
+                    </a>
+                  </div>
                 </div>
               )}
 
@@ -1086,49 +1346,98 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   </div>
                 )}
 
-                {/* File Picker */}
-                <div>
-                  <label className="block text-xs font-medium text-slate-700">
-                    ফ্ল্যাশ টুল / ফার্মওয়্যার ফাইল নির্বাচন করুন
-                  </label>
-                  <div
-                    onClick={() => fileInputRef.current?.click()}
-                    className="mt-1.5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center hover:border-sky-500 hover:bg-sky-50/40 transition-colors"
-                  >
-                    <FileUp className="h-6 w-6 text-slate-400" />
-                    {selectedFile ? (
-                      <div className="mt-2">
-                        <p className="text-sm font-medium text-slate-900 break-all">
-                          {selectedFile.name}
-                        </p>
-                        <p className="mt-0.5 font-mono text-xs text-slate-500 tabular-nums">
-                          {formatBytes(selectedFile.size)}
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="mt-2">
-                        <p className="text-sm font-medium text-slate-700">
-                          ফাইল বেছে নিতে ক্লিক করুন
-                        </p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          .zip, .rar, .7z, .tar, .md5, .bin, .exe, .pac, .ofp, .img
-                        </p>
-                      </div>
-                    )}
+                {uploadMode === 'file' ? (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700">
+                      ফ্ল্যাশ টুল / ফার্মওয়্যার ফাইল নির্বাচন করুন
+                    </label>
+                    <div
+                      onClick={() => fileInputRef.current?.click()}
+                      className="mt-1.5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center hover:border-sky-500 hover:bg-sky-50/40 transition-colors"
+                    >
+                      <FileUp className="h-6 w-6 text-slate-400" />
+                      {selectedFile ? (
+                        <div className="mt-2">
+                          <p className="text-sm font-medium text-slate-900 break-all">
+                            {selectedFile.name}
+                          </p>
+                          <p className="mt-0.5 font-mono text-xs text-slate-500 tabular-nums">
+                            {formatBytes(selectedFile.size)}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="mt-2">
+                          <p className="text-sm font-medium text-slate-700">
+                            ফাইল বেছে নিতে ক্লিক করুন
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            .zip, .rar, .7z, .tar, .md5, .bin, .exe, .pac, .ofp, .img
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      onChange={(e) =>
+                        handleFileChange(
+                          e.target.files && e.target.files[0]
+                            ? e.target.files[0]
+                            : null
+                        )
+                      }
+                      className="sr-only"
+                    />
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    onChange={(e) =>
-                      handleFileChange(
-                        e.target.files && e.target.files[0]
-                          ? e.target.files[0]
-                          : null
-                      )
-                    }
-                    className="sr-only"
-                  />
-                </div>
+                ) : (
+                  <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/40 p-3.5">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700">
+                        Google Drive শেয়ার লিংক অথবা File ID
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="https://drive.google.com/file/d/1AbC.../view?usp=sharing"
+                        value={driveLinkInput}
+                        onChange={(e) => setDriveLinkInput(e.target.value)}
+                        required
+                        className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+                      />
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        ড্রাইভ ফাইলটি &quot;Anyone with the link&quot; হিসেবে শেয়ার
+                        করে লিংক এখানে বসান (ড্রাইভ OAuth ছাড়াই কাজ করবে)।
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700">
+                          ফাইলের নাম (ঐচ্ছিক)
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="যেমন: SM-A546E_Firmware.zip"
+                          value={linkFileName}
+                          onChange={(e) => setLinkFileName(e.target.value)}
+                          maxLength={200}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-700">
+                          ফাইলের সাইজ (MB)
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          value={linkFileSizeMb}
+                          onChange={(e) => setLinkFileSizeMb(e.target.value)}
+                          className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Brand & Model */}
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1325,8 +1634,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   {uploading ? (
                     <LoadingSpinner
                       size="sm"
-                      label="গুগল ড্রাইভে আপলোড হচ্ছে..."
+                      label={
+                        uploadMode === 'link'
+                          ? 'ড্রাইভ লিংক প্রকাশ হচ্ছে...'
+                          : 'গুগল ড্রাইভে আপলোড হচ্ছে...'
+                      }
                     />
+                  ) : uploadMode === 'link' ? (
+                    <>
+                      <Link2 className="h-4 w-4" />
+                      <span>ড্রাইভ লিংক দিয়ে প্রকাশ করুন</span>
+                    </>
                   ) : (
                     <>
                       <Upload className="h-4 w-4" />
@@ -1467,6 +1785,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {/* TAB 2: REAL-TIME VISITOR TRACKING DASHBOARD */}
       {activeTab === 'visitors' && (
         <div className="mt-6 space-y-6">
+          {/* Print / PDF Only Report Header */}
+          <div className="hidden print:block border-b-2 border-slate-900 pb-4 mb-4">
+            <h1 className="font-display text-xl font-bold text-slate-900">
+              {siteSettings.shopName} — রিয়েল-টাইম ভিজিটর ট্র্যাকিং ও বিশ্লেষণ রিপোর্ট
+            </h1>
+            <p className="mt-1 text-xs text-slate-600">
+              প্রিন্ট তারিখ ও সময়:{' '}
+              {new Date().toLocaleString('bn-BD', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+              {visitorSummary
+                ? ` · মোট পেজ ভিজিট: ${visitorSummary.totalVisits} · আজকের ভিজিট: ${visitorSummary.todayVisits} · মোট সার্চ: ${visitorSummary.totalSearches} · মোট ডাউনলোড: ${visitorSummary.totalDownloads}`
+                : ''}
+            </p>
+          </div>
+
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <div className="flex flex-wrap items-center gap-2.5">
@@ -1474,7 +1812,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   রিয়েল-টাইম ভিজিটর ট্র্যাকিং ও বিশ্লেষণ
                 </h2>
                 <span
-                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-semibold print:hidden ${
                     streamConnected
                       ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                       : 'border-amber-200 bg-amber-50 text-amber-700'
@@ -1491,11 +1829,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </span>
               </div>
               <p className="text-xs text-slate-500">
-                সাইটে বর্তমানে থাকা লাইভ ভিজিটর, মোট ভিজিট, আজকের ভিজিটর,
-                ডিভাইসের ধরন, সার্চ ও ডাউনলোড রিয়েল-টাইমে পর্যবেক্ষণ করুন।
+                সাইটে বর্তমানে থাকা লাইভ ভিজিটর, ফোন/ডিভাইস নাম, IP ঠিকানা,
+                সার্চ কীওয়ার্ড ও ডাউনলোড রিয়েল-টাইমে পর্যবেক্ষণ করুন।
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 print:hidden">
               <button
                 type="button"
                 onClick={loadVisitorAnalytics}
@@ -1508,6 +1846,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   }`}
                 />
                 <span>রিফ্রেশ</span>
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintVisitorAnalytics}
+                disabled={!visitorSummary}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+              >
+                <Printer className="h-3.5 w-3.5 text-slate-700" />
+                <span>প্রিন্ট / PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportVisitorCsv}
+                disabled={!visitorSummary || visitorSummary.recentEvents.length === 0}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5 text-sky-700" />
+                <span>CSV</span>
               </button>
               <button
                 type="button"
@@ -1627,17 +1983,30 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                       {visitorSummary.activeVisitors.map((v) => (
                         <div
                           key={v.id}
-                          className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs"
+                          className="flex items-start justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs"
                         >
-                          <div className="min-w-0">
+                          <div className="min-w-0 space-y-0.5">
                             <p className="font-semibold text-slate-900 truncate">
-                              {v.device === 'mobile'
-                                ? 'মোবাইল'
-                                : v.device === 'tablet'
-                                  ? 'ট্যাবলেট'
-                                  : 'ডেস্কটপ'}{' '}
-                              · {v.os} / {v.browser}
+                              {v.deviceName ||
+                                (v.device === 'mobile'
+                                  ? 'মোবাইল ফোন'
+                                  : v.device === 'tablet'
+                                    ? 'ট্যাবলেট'
+                                    : 'ডেস্কটপ / পিসি')}
                             </p>
+                            <p className="text-[11px] text-slate-600 truncate">
+                              {v.os} / {v.browser}
+                              {v.ipAddress ? (
+                                <span className="ml-1.5 font-mono text-slate-700">
+                                  · IP: {v.ipAddress}
+                                </span>
+                              ) : null}
+                            </p>
+                            {v.searchKeyword && (
+                              <p className="font-mono text-[11px] font-medium text-amber-800 truncate">
+                                সার্চ: &quot;{v.searchKeyword}&quot;
+                              </p>
+                            )}
                             <p className="font-mono text-[11px] text-slate-500 truncate">
                               পেজ: {v.path} · ID #{v.id}
                             </p>
@@ -1798,8 +2167,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           <tr>
                             <th className="px-4 py-2.5 font-medium">সময়</th>
                             <th className="px-4 py-2.5 font-medium">ধরন</th>
-                            <th className="px-4 py-2.5 font-medium">বিবরণ / মডেল</th>
-                            <th className="px-4 py-2.5 font-medium">ডিভাইস ও ব্রাউজার</th>
+                            <th className="px-4 py-2.5 font-medium">সার্চ কীওয়ার্ড / বিবরণ</th>
+                            <th className="px-4 py-2.5 font-medium">ফোন / ডিভাইস নাম</th>
+                            <th className="px-4 py-2.5 font-medium">IP ঠিকানা</th>
                             <th className="px-4 py-2.5 font-medium">সোর্স</th>
                           </tr>
                         </thead>
@@ -1831,16 +2201,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                       : 'ভিজিট'}
                                 </span>
                               </td>
-                              <td className="px-4 py-2.5 font-mono text-[11px] max-w-[220px] truncate">
-                                {ev.label || ev.path}
+                              <td className="px-4 py-2.5 font-mono text-[11px] max-w-[240px]">
+                                <p className="truncate font-medium text-slate-800">
+                                  {ev.type === 'search' && ev.searchKeyword
+                                    ? `🔍 ${ev.searchKeyword}`
+                                    : ev.label || ev.path}
+                                </p>
+                                {ev.type !== 'search' && ev.searchKeyword && (
+                                  <p className="truncate text-[10px] text-amber-700">
+                                    সার্চ: {ev.searchKeyword}
+                                  </p>
+                                )}
                               </td>
                               <td className="px-4 py-2.5 whitespace-nowrap">
-                                {ev.device === 'mobile'
-                                  ? 'মোবাইল'
-                                  : ev.device === 'tablet'
-                                    ? 'ট্যাবলেট'
-                                    : 'ডেস্কটপ'}{' '}
-                                · {ev.os} / {ev.browser}
+                                <p className="font-medium text-slate-900">
+                                  {ev.deviceName ||
+                                    (ev.device === 'mobile'
+                                      ? 'মোবাইল ফোন'
+                                      : ev.device === 'tablet'
+                                        ? 'ট্যাবলেট'
+                                        : 'ডেস্কটপ / পিসি')}
+                                </p>
+                                <p className="text-[11px] text-slate-500">
+                                  {ev.os} / {ev.browser}
+                                </p>
+                              </td>
+                              <td className="px-4 py-2.5 font-mono text-[11px] text-slate-700 whitespace-nowrap">
+                                {ev.ipAddress || '—'}
                               </td>
                               <td className="px-4 py-2.5 text-slate-500 max-w-[160px] truncate">
                                 {ev.referrer || 'Direct'}
@@ -1867,14 +2254,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         />
       )}
 
-      {/* TAB 5: AUTHORIZED ADMINS & BANGLA GMAIL NOTIFICATION */}
-      {activeTab === 'admins' && (
+      {/* TAB 5: AUTHORIZED ADMINS & BANGLA GMAIL NOTIFICATION (PRIMARY ADMIN ONLY) */}
+      {activeTab === 'admins' && isPrimaryAdmin && (
         <AdminManagementTab
           currentAdminEmail={user.email || ''}
           shopName={siteSettings.shopName}
           accessToken={accessToken}
-          onConnectWorkspace={() => handleLoginClick(true)}
+          onConnectWorkspace={() => handleLoginClick('gmail')}
           onClearToken={onClearDriveToken}
+        />
+      )}
+
+      {/* TAB 6: ADMIN LOGIN INFO & HISTORY (DEVICE NAME, IP, PRINT/PDF) */}
+      {activeTab === 'history' && (
+        <LoginHistoryTab
+          user={user}
+          isBootstrapped={Boolean(isPrimaryAdmin)}
+          shopName={siteSettings.shopName}
+          hasDriveConnected={Boolean(accessToken)}
         />
       )}
 

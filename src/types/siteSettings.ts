@@ -158,9 +158,12 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = {
 export interface ActiveVisitorInfo {
   id: string;
   device: 'mobile' | 'desktop' | 'tablet';
+  deviceName?: string;
   browser: string;
   os: string;
   path: string;
+  ipAddress?: string;
+  searchKeyword?: string;
   lastActiveSecondsAgo: number;
 }
 
@@ -170,8 +173,11 @@ export interface VisitorEventRecord {
   path: string;
   label: string;
   device: 'mobile' | 'desktop' | 'tablet';
+  deviceName?: string;
   browser: string;
   os: string;
+  ipAddress?: string;
+  searchKeyword?: string;
   referrer: string;
   timestamp: string;
 }
