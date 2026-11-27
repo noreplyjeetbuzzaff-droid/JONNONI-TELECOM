@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
   clearDriveAccessToken,
+  consumePendingAdminRedirect,
   getAccessToken,
+  getEffectiveUserEmail,
   GoogleConsentMode,
   googleSignIn,
   googleSignInRedirect,
   initAuth,
   logout,
+  PENDING_ADMIN_REDIRECT_KEY,
 } from './lib/firebase';
 import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
 import {
@@ -28,8 +31,50 @@ import { AdSenseScriptLoader } from './components/AdSenseBanner';
 import { LegalPoliciesModal, PolicyTab } from './components/LegalPoliciesModal';
 import { CookieConsentBanner } from './components/CookieConsentBanner';
 
+function getInitialActiveView(): 'catalog' | 'admin' {
+  if (typeof window === 'undefined') return 'catalog';
+  try {
+    const url = new URL(window.location.href);
+    if (
+      url.searchParams.get('view') === 'admin' ||
+      url.searchParams.has('admin') ||
+      url.pathname === '/admin' ||
+      url.hash === '#admin'
+    ) {
+      return 'admin';
+    }
+    if (sessionStorage.getItem(PENDING_ADMIN_REDIRECT_KEY) === '1') {
+      return 'admin';
+    }
+  } catch {
+    // Ignore URL or storage parsing errors
+  }
+  return 'catalog';
+}
+
 export default function App() {
-  const [activeView, setActiveView] = useState<'catalog' | 'admin'>('catalog');
+  const [activeView, setActiveView] = useState<'catalog' | 'admin'>(() =>
+    getInitialActiveView()
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      if (activeView === 'admin') {
+        if (url.searchParams.get('view') !== 'admin') {
+          url.searchParams.set('view', 'admin');
+          window.history.replaceState(null, '', url.toString());
+        }
+      } else if (url.searchParams.has('view') || url.searchParams.has('admin')) {
+        url.searchParams.delete('view');
+        url.searchParams.delete('admin');
+        window.history.replaceState(null, '', url.toString());
+      }
+    } catch {
+      // Ignore history API errors inside restricted iframes
+    }
+  }, [activeView]);
 
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -126,17 +171,45 @@ export default function App() {
   useEffect(() => {
     const unsubscribeAuth = initAuth(
       async (firebaseUser, token) => {
-        setUser(firebaseUser);
-        setAccessToken(token || getAccessToken());
         if (firebaseUser) {
+          setAuthChecking(true);
+          setUser(firebaseUser);
+          setAccessToken(token || getAccessToken());
           setAuthRedirectError(null);
+
+          let resolvedEmail = getEffectiveUserEmail(firebaseUser);
+          let resolvedVerified = firebaseUser.emailVerified;
+          const hasGoogleProvider =
+            firebaseUser.providerData?.some(
+              (p) => p?.providerId === 'google.com'
+            ) ?? false;
+
+          if (!resolvedEmail) {
+            try {
+              const tokenRes = await firebaseUser.getIdTokenResult();
+              const claimEmail = tokenRes.claims?.email;
+              if (typeof claimEmail === 'string' && claimEmail.trim()) {
+                resolvedEmail = claimEmail.trim();
+              }
+              if (tokenRes.claims?.email_verified === true) {
+                resolvedVerified = true;
+              }
+            } catch {
+              // Ignore token claim fallback error
+            }
+          }
+
           const adminStatus = await checkIsAdmin(
             firebaseUser.uid,
-            firebaseUser.email,
-            firebaseUser.emailVerified
+            resolvedEmail,
+            resolvedVerified,
+            hasGoogleProvider
           );
           setIsAdmin(adminStatus);
           if (adminStatus) {
+            if (consumePendingAdminRedirect()) {
+              setActiveView('admin');
+            }
             try {
               const sessionKey = `jt_login_logged_${firebaseUser.uid}`;
               if (!sessionStorage.getItem(sessionKey)) {
@@ -152,6 +225,8 @@ export default function App() {
             }
           }
         } else {
+          setUser(null);
+          setAccessToken(null);
           setIsAdmin(false);
         }
         setAuthChecking(false);
@@ -199,13 +274,19 @@ export default function App() {
       if (result) {
         setUser(result.user);
         setAccessToken(result.accessToken);
+        const hasGoogleProvider =
+          result.user.providerData?.some(
+            (p) => p?.providerId === 'google.com'
+          ) ?? false;
         const adminStatus = await checkIsAdmin(
           result.user.uid,
-          result.user.email,
-          result.user.emailVerified
+          getEffectiveUserEmail(result.user),
+          result.user.emailVerified,
+          hasGoogleProvider
         );
         setIsAdmin(adminStatus);
         if (adminStatus) {
+          setActiveView('admin');
           if (forceDriveConsent === 'gmail') {
             recordAdminLoginEvent({
               user: result.user,
@@ -266,6 +347,7 @@ export default function App() {
   }, []);
 
   const handleLogout = async () => {
+    consumePendingAdminRedirect();
     if (user && isAdmin) {
       try {
         sessionStorage.removeItem(`jt_login_logged_${user.uid}`);

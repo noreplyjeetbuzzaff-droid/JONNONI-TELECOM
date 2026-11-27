@@ -83,6 +83,7 @@ import {
   uploadFileToDrive,
 } from '../lib/googleDrive';
 import {
+  getEffectiveUserEmail,
   GoogleConsentMode,
   isBootstrappedAdminEmail,
   isPrimaryAdminEmail,
@@ -216,8 +217,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [locatingGps, setLocatingGps] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
-  const isBootstrapped = isBootstrappedAdminEmail(user?.email);
-  const isPrimaryAdmin = isPrimaryAdminEmail(user?.email);
+  const effectiveEmail = getEffectiveUserEmail(user);
+  const isBootstrapped = isBootstrappedAdminEmail(effectiveEmail);
+  const isPrimaryAdmin = isPrimaryAdminEmail(effectiveEmail);
 
   useEffect(() => {
     if (activeTab === 'admins' && !isPrimaryAdmin) {
@@ -940,7 +942,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 ক্লিক করে অ্যাপটি নতুন ব্রাউজার ট্যাবে খুলে লগইন করুন:
               </p>
               <a
-                href={typeof window !== 'undefined' ? window.location.href : '/'}
+                href={(() => {
+                  if (typeof window === 'undefined') return '/?view=admin';
+                  try {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('view', 'admin');
+                    return url.toString();
+                  } catch {
+                    return '/?view=admin';
+                  }
+                })()}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 font-semibold text-white hover:bg-sky-700"
@@ -978,7 +989,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <p className="mt-2 text-sm leading-relaxed text-slate-600">
             আপনি{' '}
             <span className="font-mono font-medium text-slate-900">
-              {user.email}
+              {effectiveEmail || user.email || 'অজানা অ্যাকাউন্ট'}
             </span>{' '}
             অ্যাকাউন্ট দিয়ে সাইন ইন করেছেন, কিন্তু এই অ্যাকাউন্টে জননী টেলিকম
             অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টারের অ্যাডমিন অনুমতি নেই।
@@ -1049,7 +1060,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-700">
             <span className="text-slate-500">সাইন ইন: </span>
             <span className="font-mono font-medium text-slate-900">
-              {user.email}
+              {effectiveEmail || user.email}
             </span>
           </div>
           <button

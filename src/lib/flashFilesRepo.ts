@@ -52,9 +52,11 @@ function sortByCreatedAtDesc(items: FlashFileRecord[]): FlashFileRecord[] {
 export async function checkIsAdmin(
   uid: string,
   email: string | null | undefined,
-  emailVerified: boolean
+  emailVerified: boolean,
+  hasGoogleProvider = false
 ): Promise<boolean> {
-  if (!emailVerified) return false;
+  const isVerified = emailVerified || hasGoogleProvider;
+  if (!isVerified) return false;
   if (isBootstrappedAdminEmail(email)) {
     return true;
   }

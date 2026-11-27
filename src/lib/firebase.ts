@@ -81,6 +81,35 @@ export function isPrimaryAdminEmail(
   );
 }
 
+export const PENDING_ADMIN_REDIRECT_KEY = 'jt_pending_admin_redirect';
+
+export function markPendingAdminRedirect(): void {
+  try {
+    sessionStorage.setItem(PENDING_ADMIN_REDIRECT_KEY, '1');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+export function consumePendingAdminRedirect(): boolean {
+  try {
+    const val = sessionStorage.getItem(PENDING_ADMIN_REDIRECT_KEY) === '1';
+    if (val) sessionStorage.removeItem(PENDING_ADMIN_REDIRECT_KEY);
+    return val;
+  } catch {
+    return false;
+  }
+}
+
+export function getEffectiveUserEmail(user: User | null | undefined): string | null {
+  if (!user) return null;
+  if (user.email && user.email.trim()) return user.email.trim();
+  const providerEmail = user.providerData?.find(
+    (p) => typeof p?.email === 'string' && p.email.trim().length > 0
+  )?.email;
+  return providerEmail ? providerEmail.trim() : null;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -231,6 +260,7 @@ export const initAuth = (
   getRedirectResult(auth)
     .then(async (redirectResult) => {
       if (redirectResult) {
+        markPendingAdminRedirect();
         const credential =
           GoogleAuthProvider.credentialFromResult(redirectResult);
         if (
@@ -310,6 +340,7 @@ export const googleSignIn = async (
       (code === 'auth/popup-blocked' ||
         code === 'auth/operation-not-supported-in-this-environment')
     ) {
+      markPendingAdminRedirect();
       await signInWithRedirect(auth, activeProvider);
       return null;
     }
@@ -325,6 +356,7 @@ export const googleSignInRedirect = async (
 ): Promise<void> => {
   const activeProvider = resolveProviderForConsent(forceConsent);
   try {
+    markPendingAdminRedirect();
     await signInWithRedirect(auth, activeProvider);
   } catch (err: unknown) {
     throw new Error(formatAuthErrorMessage(err));
