@@ -17,6 +17,7 @@ const FIREBASE_CONFIG_FILE = path.resolve(__dirname, 'firebase-applet-config.jso
 const BOOTSTRAPPED_ADMIN_EMAILS = [
   'noreply.jeetbuzzaff@gmail.com',
   'sflove087@gmail.com',
+  'jononitelecom266366@gmail.com',
 ];
 const ACTIVE_SESSION_TTL_MS = 45_000;
 

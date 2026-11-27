@@ -27,6 +27,7 @@ import {
   Search,
   Settings,
   ShieldAlert,
+  ShieldCheck,
   Smartphone,
   Trash2,
   Upload,
@@ -78,6 +79,7 @@ import {
   uploadFileToDrive,
 } from '../lib/googleDrive';
 import { isBootstrappedAdminEmail } from '../lib/firebase';
+import { AdminManagementTab } from './AdminManagementTab';
 import { AdminSeoModule } from './AdminSeoModule';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -108,7 +110,7 @@ function isDriveScopeOrAuthError(err: unknown): boolean {
   );
 }
 
-type AdminTab = 'files' | 'visitors' | 'seo' | 'settings';
+type AdminTab = 'files' | 'visitors' | 'seo' | 'settings' | 'admins';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   user,
@@ -963,6 +965,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         >
           <Settings className="h-4 w-4" />
           <span>শপ ২৪ ঘণ্টা, ম্যাপ ও হেডার</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'admins'}
+          onClick={() => setActiveTab('admins')}
+          className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-semibold transition-colors cursor-pointer ${
+            activeTab === 'admins'
+              ? 'bg-slate-900 text-white'
+              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+          }`}
+        >
+          <ShieldCheck className="h-4 w-4" />
+          <span>অ্যাডমিন ও বাংলা ইমেইল</span>
         </button>
       </div>
 
@@ -1847,6 +1864,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           uid={user.uid}
           getIdToken={() => user.getIdToken()}
           siteSettings={siteSettings}
+        />
+      )}
+
+      {/* TAB 5: AUTHORIZED ADMINS & BANGLA GMAIL NOTIFICATION */}
+      {activeTab === 'admins' && (
+        <AdminManagementTab
+          currentAdminEmail={user.email || ''}
+          shopName={siteSettings.shopName}
+          accessToken={accessToken}
+          onConnectWorkspace={() => handleLoginClick(true)}
+          onClearToken={onClearDriveToken}
         />
       )}
 

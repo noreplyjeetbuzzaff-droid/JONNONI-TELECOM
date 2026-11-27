@@ -30,7 +30,8 @@ service cloud.firestore {
       return isVerifiedUser() && (
         request.auth.token.email in [
           'noreply.jeetbuzzaff@gmail.com',
-          'sflove087@gmail.com'
+          'sflove087@gmail.com',
+          'jononitelecom266366@gmail.com'
         ]
       );
     }

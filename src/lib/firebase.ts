@@ -25,9 +25,16 @@ provider.setCustomParameters({
   prompt: 'select_account',
 });
 
-// Separate provider used only when explicitly connecting Google Drive storage
+export const WORKSPACE_SCOPES = [
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/gmail.send',
+] as const;
+
+// Separate provider used when connecting Google Drive storage & Gmail notifications
 const driveConsentProvider = new GoogleAuthProvider();
-driveConsentProvider.addScope('https://www.googleapis.com/auth/drive.file');
+for (const scope of WORKSPACE_SCOPES) {
+  driveConsentProvider.addScope(scope);
+}
 driveConsentProvider.setCustomParameters({
   prompt: 'consent select_account',
 });
@@ -39,6 +46,7 @@ export const BOOTSTRAPPED_ADMIN_EMAIL = 'noreply.jeetbuzzaff@gmail.com';
 export const BOOTSTRAPPED_ADMIN_EMAILS = [
   'noreply.jeetbuzzaff@gmail.com',
   'sflove087@gmail.com',
+  'jononitelecom266366@gmail.com',
 ] as const;
 
 export function isBootstrappedAdminEmail(
@@ -153,19 +161,35 @@ function formatAuthErrorMessage(err: unknown): string {
   return rawMessage || 'গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
 }
 
-async function hasDriveFileScope(token: string): Promise<boolean> {
+export interface WorkspaceTokenScopes {
+  hasDrive: boolean;
+  hasGmailSend: boolean;
+}
+
+export async function checkTokenScopes(
+  token: string
+): Promise<WorkspaceTokenScopes> {
   try {
     const res = await fetch(
       `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(token)}`
     );
-    if (!res.ok) return false;
+    if (!res.ok) return { hasDrive: false, hasGmailSend: false };
     const data = (await res.json()) as { scope?: string };
-    return Boolean(
-      data.scope && data.scope.includes('https://www.googleapis.com/auth/drive')
-    );
+    const scopeStr = data.scope || '';
+    return {
+      hasDrive: scopeStr.includes('https://www.googleapis.com/auth/drive'),
+      hasGmailSend:
+        scopeStr.includes('https://www.googleapis.com/auth/gmail.send') ||
+        scopeStr.includes('https://mail.google.com/'),
+    };
   } catch {
-    return false;
+    return { hasDrive: false, hasGmailSend: false };
   }
+}
+
+async function hasDriveFileScope(token: string): Promise<boolean> {
+  const scopes = await checkTokenScopes(token);
+  return scopes.hasDrive || scopes.hasGmailSend;
 }
 
 export const initAuth = (
