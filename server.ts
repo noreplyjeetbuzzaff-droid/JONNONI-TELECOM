@@ -30,6 +30,7 @@ interface ActiveVisitorSession {
   path: string;
   ipAddress?: string;
   searchKeyword?: string;
+  trafficSource?: string;
   lastSeenMs: number;
 }
 
@@ -44,6 +45,7 @@ interface VisitorEvent {
   os: string;
   ipAddress?: string;
   searchKeyword?: string;
+  trafficSource?: string;
   referrer: string;
   timestamp: string;
 }
@@ -68,6 +70,7 @@ interface StoredAnalytics {
   dailyStats: Record<string, DailyStatBucket>;
   topSearches: Record<string, number>;
   topDownloads: Record<string, { title: string; count: number }>;
+  topSources: Record<string, number>;
   recentEvents: VisitorEvent[];
   updatedAt: string;
 }
@@ -87,6 +90,7 @@ function createEmptyAnalytics(): StoredAnalytics {
     dailyStats: {},
     topSearches: {},
     topDownloads: {},
+    topSources: {},
     recentEvents: [],
     updatedAt: new Date().toISOString(),
   };
@@ -148,6 +152,7 @@ async function loadAnalytics(): Promise<StoredAnalytics> {
       dailyStats: parsed.dailyStats || {},
       topSearches: parsed.topSearches || {},
       topDownloads: parsed.topDownloads || {},
+      topSources: parsed.topSources || {},
       recentEvents: Array.isArray(parsed.recentEvents) ? parsed.recentEvents : [],
     };
   } catch {
@@ -259,6 +264,24 @@ function getCleanRequestIp(req: express.Request): string {
   return rawIp.replace(/^::ffff:/i, '').slice(0, 64) || 'Unknown';
 }
 
+function detectServerTrafficSource(rawReferrer: string, ua: string): string {
+  const ref = rawReferrer.trim().toLowerCase();
+  const lowerUa = ua.toLowerCase();
+  if (ref.includes('youtube.com') || ref.includes('youtu.be')) return 'YouTube';
+  if (ref.includes('tiktok.com')) return 'TikTok';
+  if (ref.includes('facebook.com') || ref.includes('fb.com') || ref.includes('fb.watch')) return 'Facebook';
+  if (ref.includes('instagram.com')) return 'Instagram';
+  if (ref.includes('whatsapp.com') || ref.includes('wa.me')) return 'WhatsApp';
+  if (ref.includes('t.me') || ref.includes('telegram.org')) return 'Telegram';
+  if (ref.includes('google.')) return 'Google Search';
+  if (/fban|fbav|fb_iab|fbios|fb4a/i.test(lowerUa)) return 'Facebook (App)';
+  if (/bytedancewebview|tiktok|musical_ly|trill/i.test(lowerUa)) return 'TikTok (App)';
+  if (/instagram/i.test(lowerUa)) return 'Instagram (App)';
+  if (/youtube/i.test(lowerUa)) return 'YouTube (App)';
+  if (/whatsapp/i.test(lowerUa)) return 'WhatsApp';
+  return 'Direct (সরাসরি)';
+}
+
 async function recordEvent(params: {
   type: 'pageview' | 'search' | 'download';
   path: string;
@@ -268,11 +291,16 @@ async function recordEvent(params: {
   visitorId?: string;
   deviceName?: string;
   searchKeyword?: string;
+  trafficSource?: string;
 }) {
   const data = await loadAnalytics();
   const ua = String(params.req.headers['user-agent'] || '');
   const { device, browser, os } = parseUserAgent(ua);
   const ipAddress = getCleanRequestIp(params.req);
+  const resolvedSource = (
+    params.trafficSource?.trim() ||
+    detectServerTrafficSource(params.referrer, ua)
+  ).slice(0, 60);
   const vHash = hashVisitorKey(params.req, params.visitorId);
   const dayKey = getTodayKey();
 
@@ -303,6 +331,7 @@ async function recordEvent(params: {
     data.totalVisits += 1;
     bucket.visits += 1;
     data.deviceCounts[device] += 1;
+    data.topSources[resolvedSource] = (data.topSources[resolvedSource] || 0) + 1;
   } else if (params.type === 'download') {
     data.totalDownloads += 1;
     bucket.downloads += 1;
@@ -335,6 +364,7 @@ async function recordEvent(params: {
       params.type === 'search'
         ? params.label.slice(0, 120)
         : params.searchKeyword?.slice(0, 120),
+    trafficSource: resolvedSource,
     referrer: params.referrer.slice(0, 160),
     timestamp: new Date().toISOString(),
   };
@@ -384,6 +414,7 @@ function buildVisitorSummaryPayload(data: StoredAnalytics) {
       path: s.path,
       ipAddress: s.ipAddress,
       searchKeyword: s.searchKeyword,
+      trafficSource: s.trafficSource,
       lastActiveSecondsAgo: Math.max(0, Math.round((now - s.lastSeenMs) / 1000)),
     }));
 
@@ -415,6 +446,11 @@ function buildVisitorSummaryPayload(data: StoredAnalytics) {
     .sort((a, b) => b.count - a.count)
     .slice(0, 6);
 
+  const topSources = Object.entries(data.topSources || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([source, count]) => ({ source, count }));
+
   return {
     liveVisitorsCount: activeSessions.size,
     activeVisitors,
@@ -428,6 +464,7 @@ function buildVisitorSummaryPayload(data: StoredAnalytics) {
     dailyTrend,
     topSearches,
     topDownloads,
+    topSources,
     recentEvents: data.recentEvents.slice(0, 25),
     updatedAt: data.updatedAt,
   };
@@ -770,6 +807,10 @@ async function createServer() {
       typeof req.body?.searchKeyword === 'string'
         ? req.body.searchKeyword.slice(0, 120)
         : undefined;
+    const trafficSource =
+      typeof req.body?.trafficSource === 'string'
+        ? req.body.trafficSource.slice(0, 60)
+        : undefined;
 
     await recordEvent({
       type: rawType,
@@ -780,6 +821,7 @@ async function createServer() {
       visitorId,
       deviceName,
       searchKeyword,
+      trafficSource,
     });
     res.status(204).end();
   });
@@ -800,6 +842,10 @@ async function createServer() {
       typeof req.body?.searchKeyword === 'string'
         ? req.body.searchKeyword.slice(0, 120)
         : undefined;
+    const trafficSource =
+      typeof req.body?.trafficSource === 'string'
+        ? req.body.trafficSource.slice(0, 60)
+        : undefined;
     const ua = String(req.headers['user-agent'] || '');
     const { device, browser, os } = parseUserAgent(ua);
     const ipAddress = getCleanRequestIp(req);
@@ -817,6 +863,7 @@ async function createServer() {
       path: currentPath,
       ipAddress,
       searchKeyword: searchKeyword || prev?.searchKeyword,
+      trafficSource: trafficSource || prev?.trafficSource,
       lastSeenMs: Date.now(),
     });
 

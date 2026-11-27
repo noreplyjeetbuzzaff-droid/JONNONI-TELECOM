@@ -28,7 +28,9 @@ service cloud.firestore {
 
     function isBootstrappedAdmin() {
       return isVerifiedUser() && (
-        request.auth.token.email in [
+        'email' in request.auth.token &&
+        request.auth.token.email is string &&
+        request.auth.token.email.lower() in [
           'noreply.jeetbuzzaff@gmail.com',
           'sflove087@gmail.com',
           'jononitelecom266366@gmail.com'
@@ -156,7 +158,7 @@ service cloud.firestore {
       ])
       && data.keys().hasOnly([
         'type', 'path', 'label', 'device', 'browser', 'os',
-        'referrer', 'visitorHash', 'dayKey', 'ipAddress',
+        'referrer', 'trafficSource', 'visitorHash', 'dayKey', 'ipAddress',
         'deviceName', 'searchKeyword', 'createdAt'
       ])
       && data.type in ['pageview', 'search', 'download']
@@ -166,6 +168,7 @@ service cloud.firestore {
       && data.browser is string && data.browser.size() >= 1 && data.browser.size() <= 40
       && data.os is string && data.os.size() >= 1 && data.os.size() <= 40
       && data.referrer is string && data.referrer.size() <= 180
+      && (!('trafficSource' in data) || (data.trafficSource is string && data.trafficSource.size() <= 60))
       && data.visitorHash is string && data.visitorHash.size() >= 4 && data.visitorHash.size() <= 64 && data.visitorHash.matches('^[a-zA-Z0-9_\\-]+$')
       && data.dayKey is string && data.dayKey.matches('^\\d{4}-\\d{2}-\\d{2}$')
       && (!('ipAddress' in data) || (data.ipAddress is string && data.ipAddress.size() <= 64))
@@ -178,7 +181,7 @@ service cloud.firestore {
       return data.keys().hasAll(['id', 'device', 'browser', 'os', 'path', 'lastSeenAt'])
       && data.keys().hasOnly([
         'id', 'device', 'browser', 'os', 'path',
-        'ipAddress', 'deviceName', 'searchKeyword', 'lastSeenAt'
+        'ipAddress', 'deviceName', 'searchKeyword', 'trafficSource', 'lastSeenAt'
       ])
       && data.id is string && data.id.size() >= 4 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$')
       && data.device in ['mobile', 'desktop', 'tablet']
@@ -188,6 +191,7 @@ service cloud.firestore {
       && (!('ipAddress' in data) || (data.ipAddress is string && data.ipAddress.size() <= 64))
       && (!('deviceName' in data) || (data.deviceName is string && data.deviceName.size() <= 100))
       && (!('searchKeyword' in data) || (data.searchKeyword is string && data.searchKeyword.size() <= 120))
+      && (!('trafficSource' in data) || (data.trafficSource is string && data.trafficSource.size() <= 60))
       && data.lastSeenAt is timestamp;
     }
 
@@ -321,7 +325,7 @@ service cloud.firestore {
         && isValidId(entryId)
         && isValidLoginHistory(incoming())
         && incoming().uid == request.auth.uid
-        && incoming().email == request.auth.token.email
+        && incoming().email.lower() == request.auth.token.email.lower()
         && incoming().createdAt == request.time;
 
       allow update: if false;

@@ -270,9 +270,14 @@ export const initAuth = (
           cachedAccessToken = credential.accessToken;
         }
         onAuthChange(redirectResult.user, cachedAccessToken);
+      } else if (!auth.currentUser && consumePendingAdminRedirect()) {
+        onAuthError?.(
+          'ব্রাউজারে থার্ড-পার্টি কুকি বন্ধ থাকায় রিডাইরেক্ট লগইন সম্পূর্ণ হয়নি। অনুগ্রহ করে সরাসরি "Sign in with Google" বাটনে ক্লিক করুন।'
+        );
       }
     })
     .catch((err) => {
+      consumePendingAdminRedirect();
       console.error('Redirect auth check error:', err);
       if (onAuthError) {
         onAuthError(formatAuthErrorMessage(err));
@@ -326,25 +331,6 @@ export const googleSignIn = async (
     }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (err: unknown) {
-    const code =
-      typeof err === 'object' && err !== null && 'code' in err
-        ? String((err as { code?: unknown }).code)
-        : '';
-
-    const isInIframe =
-      typeof window !== 'undefined' && window.self !== window.top;
-
-    // Outside iframe, fall back to redirect when popups are blocked
-    if (
-      !isInIframe &&
-      (code === 'auth/popup-blocked' ||
-        code === 'auth/operation-not-supported-in-this-environment')
-    ) {
-      markPendingAdminRedirect();
-      await signInWithRedirect(auth, activeProvider);
-      return null;
-    }
-
     throw new Error(formatAuthErrorMessage(err));
   } finally {
     isSigningIn = false;

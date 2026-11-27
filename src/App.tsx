@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
+  auth,
   clearDriveAccessToken,
   consumePendingAdminRedirect,
   getAccessToken,
@@ -20,7 +21,7 @@ import {
 import { subscribeSiteSettings } from './lib/siteSettingsRepo';
 import {
   startVisitorPresence,
-  trackVisitorEvent,
+  trackInitialPageviewOnce,
 } from './lib/analyticsClient';
 import { FlashFileRecord } from './types/flashFile';
 import { DEFAULT_SITE_SETTINGS, SiteSettings } from './types/siteSettings';
@@ -154,10 +155,10 @@ export default function App() {
     upsertMeta('meta[name="twitter:description"]', 'name', 'twitter:description', desc);
   }, [siteSettings.seoDescription, siteSettings.seoKeywords]);
 
-  // Track public pageview once per initial load & keep real-time presence heartbeat
+  // Track public pageview once per session (prevents recounting on F5/refresh) & keep live presence on catalog
   useEffect(() => {
-    trackVisitorEvent({
-      type: 'pageview',
+    if (activeView === 'admin') return;
+    trackInitialPageviewOnce({
       path: window.location.pathname || '/',
       label: 'Jonnoi Telecom Home',
     });
@@ -165,79 +166,87 @@ export default function App() {
       () => window.location.pathname || '/'
     );
     return () => stopPresence();
+  }, [activeView]);
+
+  const resolveAdminForUser = useCallback(async (firebaseUser: User) => {
+    let resolvedEmail = getEffectiveUserEmail(firebaseUser);
+    let resolvedVerified = firebaseUser.emailVerified;
+    const hasGoogleProvider =
+      firebaseUser.providerData?.some(
+        (p) => p?.providerId === 'google.com'
+      ) ?? false;
+
+    if (!resolvedEmail) {
+      try {
+        const tokenRes = await firebaseUser.getIdTokenResult();
+        const claimEmail = tokenRes.claims?.email;
+        if (typeof claimEmail === 'string' && claimEmail.trim()) {
+          resolvedEmail = claimEmail.trim();
+        }
+        if (tokenRes.claims?.email_verified === true) {
+          resolvedVerified = true;
+        }
+      } catch {
+        // Ignore token claim fallback error
+      }
+    }
+
+    return checkIsAdmin(
+      firebaseUser.uid,
+      resolvedEmail,
+      resolvedVerified,
+      hasGoogleProvider
+    );
   }, []);
 
   // Subscribe to Auth State
   useEffect(() => {
     const unsubscribeAuth = initAuth(
       async (firebaseUser, token) => {
-        if (firebaseUser) {
-          setAuthChecking(true);
-          setUser(firebaseUser);
-          setAccessToken(token || getAccessToken());
-          setAuthRedirectError(null);
+        try {
+          if (firebaseUser) {
+            setAuthChecking(true);
+            setUser(firebaseUser);
+            setAccessToken(token || getAccessToken());
+            setAuthRedirectError(null);
 
-          let resolvedEmail = getEffectiveUserEmail(firebaseUser);
-          let resolvedVerified = firebaseUser.emailVerified;
-          const hasGoogleProvider =
-            firebaseUser.providerData?.some(
-              (p) => p?.providerId === 'google.com'
-            ) ?? false;
-
-          if (!resolvedEmail) {
-            try {
-              const tokenRes = await firebaseUser.getIdTokenResult();
-              const claimEmail = tokenRes.claims?.email;
-              if (typeof claimEmail === 'string' && claimEmail.trim()) {
-                resolvedEmail = claimEmail.trim();
+            const adminStatus = await resolveAdminForUser(firebaseUser);
+            setIsAdmin(adminStatus);
+            if (adminStatus) {
+              if (consumePendingAdminRedirect()) {
+                setActiveView('admin');
               }
-              if (tokenRes.claims?.email_verified === true) {
-                resolvedVerified = true;
+              try {
+                const sessionKey = `jt_login_logged_${firebaseUser.uid}`;
+                if (!sessionStorage.getItem(sessionKey)) {
+                  sessionStorage.setItem(sessionKey, '1');
+                  recordAdminLoginEvent({
+                    user: firebaseUser,
+                    eventType: 'admin_login',
+                    status: 'success',
+                  });
+                }
+              } catch {
+                // ignore sessionStorage failure
               }
-            } catch {
-              // Ignore token claim fallback error
             }
+          } else {
+            setUser(null);
+            setAccessToken(null);
+            setIsAdmin(false);
           }
-
-          const adminStatus = await checkIsAdmin(
-            firebaseUser.uid,
-            resolvedEmail,
-            resolvedVerified,
-            hasGoogleProvider
-          );
-          setIsAdmin(adminStatus);
-          if (adminStatus) {
-            if (consumePendingAdminRedirect()) {
-              setActiveView('admin');
-            }
-            try {
-              const sessionKey = `jt_login_logged_${firebaseUser.uid}`;
-              if (!sessionStorage.getItem(sessionKey)) {
-                sessionStorage.setItem(sessionKey, '1');
-                recordAdminLoginEvent({
-                  user: firebaseUser,
-                  eventType: 'admin_login',
-                  status: 'success',
-                });
-              }
-            } catch {
-              // ignore sessionStorage failure
-            }
-          }
-        } else {
-          setUser(null);
-          setAccessToken(null);
-          setIsAdmin(false);
+        } finally {
+          setAuthChecking(false);
         }
-        setAuthChecking(false);
       },
       (errMessage) => {
         setAuthRedirectError(errMessage);
+        setAuthChecking(false);
       }
     );
 
     return () => unsubscribeAuth();
-  }, []);
+  }, [resolveAdminForUser]);
 
   // Subscribe to Public Catalog Files
   useEffect(() => {
@@ -317,6 +326,15 @@ export default function App() {
         }
       }
     } catch (err) {
+      if (auth.currentUser && !forceDriveConsent) {
+        const recoveredAdmin = await resolveAdminForUser(auth.currentUser);
+        setUser(auth.currentUser);
+        setIsAdmin(recoveredAdmin);
+        if (recoveredAdmin) {
+          setActiveView('admin');
+          return;
+        }
+      }
       if (user && isAdmin && forceDriveConsent) {
         const msg = err instanceof Error ? err.message : String(err || '');
         const isBlocked =
@@ -364,6 +382,29 @@ export default function App() {
     setUser(null);
     setAccessToken(null);
     setIsAdmin(false);
+  };
+
+  const handleSwitchAccount = async () => {
+    await handleLogout();
+    await handleGoogleLogin(false);
+  };
+
+  const handleReverifyAdmin = async () => {
+    const active = auth.currentUser;
+    if (!active) return;
+    setAuthChecking(true);
+    try {
+      await active.reload().catch(() => {});
+      await active.getIdToken(true).catch(() => {});
+      const adminStatus = await resolveAdminForUser(active);
+      setUser(active);
+      setIsAdmin(adminStatus);
+      if (adminStatus) {
+        setActiveView('admin');
+      }
+    } finally {
+      setAuthChecking(false);
+    }
   };
 
   return (
@@ -420,6 +461,8 @@ export default function App() {
             onGoogleLoginRedirect={handleGoogleLoginRedirect}
             onClearDriveToken={handleClearDriveToken}
             onLogout={handleLogout}
+            onSwitchAccount={handleSwitchAccount}
+            onReverifyAdmin={handleReverifyAdmin}
           />
         )}
       </main>

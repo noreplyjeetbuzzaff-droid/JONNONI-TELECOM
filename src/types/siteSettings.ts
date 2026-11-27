@@ -164,6 +164,7 @@ export interface ActiveVisitorInfo {
   path: string;
   ipAddress?: string;
   searchKeyword?: string;
+  trafficSource?: string;
   lastActiveSecondsAgo: number;
 }
 
@@ -178,6 +179,7 @@ export interface VisitorEventRecord {
   os: string;
   ipAddress?: string;
   searchKeyword?: string;
+  trafficSource?: string;
   referrer: string;
   timestamp: string;
 }
@@ -207,6 +209,7 @@ export interface VisitorSummary {
   dailyTrend: DailyVisitorPoint[];
   topSearches: Array<{ term: string; count: number }>;
   topDownloads: Array<{ title: string; count: number }>;
+  topSources?: Array<{ source: string; count: number }>;
   recentEvents: VisitorEventRecord[];
   updatedAt: string;
 }

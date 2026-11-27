@@ -325,6 +325,10 @@
           "type": "string",
           "maxLength": 180
         },
+        "trafficSource": {
+          "type": "string",
+          "maxLength": 60
+        },
         "visitorHash": {
           "type": "string",
           "minLength": 4,
@@ -406,6 +410,10 @@
         "searchKeyword": {
           "type": "string",
           "maxLength": 120
+        },
+        "trafficSource": {
+          "type": "string",
+          "maxLength": 60
         },
         "lastSeenAt": {
           "type": "string",

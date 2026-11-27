@@ -22,6 +22,10 @@ import {
 } from '../types/siteSettings';
 
 const VISITOR_STORAGE_KEY = 'jt_visitor_id_v1';
+const SESSION_PAGEVIEW_KEY = 'jt_session_pageview_v1';
+const LAST_PAGEVIEW_AT_KEY = 'jt_last_pageview_at_v1';
+const TRAFFIC_SOURCE_SESSION_KEY = 'jt_traffic_source_v1';
+const PAGEVIEW_COOLDOWN_MS = 30 * 60 * 1000;
 const EVENTS_COLLECTION = 'visitor_events';
 const PRESENCE_COLLECTION = 'visitor_presence';
 const PRESENCE_TTL_MS = 65_000;
@@ -42,6 +46,119 @@ function getVisitorIpAddress(): Promise<string> {
   return cachedVisitorIpPromise;
 }
 
+export function detectTrafficSource(
+  rawReferrer?: string,
+  pageUrl?: string,
+  userAgent?: string
+): string {
+  const ref = (rawReferrer || '').trim();
+  const ua = (userAgent || (typeof navigator !== 'undefined' ? navigator.userAgent : '')).toLowerCase();
+  const currentUrl =
+    pageUrl || (typeof window !== 'undefined' ? window.location.href : '');
+  const currentHost =
+    typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+
+  // 1. Check UTM / social click IDs in URL first (most reliable for shared links)
+  if (currentUrl) {
+    try {
+      const parsedUrl = new URL(currentUrl, 'https://localhost');
+      const utm = (
+        parsedUrl.searchParams.get('utm_source') ||
+        parsedUrl.searchParams.get('source') ||
+        parsedUrl.searchParams.get('ref') ||
+        parsedUrl.searchParams.get('from') ||
+        ''
+      )
+        .trim()
+        .toLowerCase();
+
+      if (parsedUrl.searchParams.has('fbclid') || utm.includes('facebook') || utm === 'fb') {
+        return 'Facebook';
+      }
+      if (parsedUrl.searchParams.has('ttclid') || utm.includes('tiktok') || utm === 'tt') {
+        return 'TikTok';
+      }
+      if (utm.includes('youtube') || utm === 'yt') {
+        return 'YouTube';
+      }
+      if (utm.includes('instagram') || utm === 'ig') {
+        return 'Instagram';
+      }
+      if (utm.includes('whatsapp') || utm === 'wa') {
+        return 'WhatsApp';
+      }
+      if (utm.includes('telegram') || utm === 'tg') {
+        return 'Telegram';
+      }
+      if (parsedUrl.searchParams.has('gclid') || utm.includes('google')) {
+        return 'Google Search';
+      }
+    } catch {
+      // Ignore malformed URL
+    }
+  }
+
+  // 2. Check document.referrer hostname
+  if (ref && ref.toLowerCase() !== 'direct') {
+    const lowerRef = ref.toLowerCase();
+    try {
+      const refUrl = new URL(ref.startsWith('http') ? ref : `https://${ref}`);
+      const host = refUrl.hostname.toLowerCase().replace(/^www\./, '');
+      if (host.includes('youtube.com') || host === 'youtu.be') return 'YouTube';
+      if (host.includes('tiktok.com')) return 'TikTok';
+      if (host.includes('facebook.com') || host === 'fb.com' || host === 'fb.watch') return 'Facebook';
+      if (host.includes('instagram.com')) return 'Instagram';
+      if (host.includes('whatsapp.com') || host === 'wa.me') return 'WhatsApp';
+      if (host === 't.me' || host.includes('telegram.org')) return 'Telegram';
+      if (host.includes('google.')) return 'Google Search';
+      if (host.includes('bing.com')) return 'Bing Search';
+      if (host === 't.co' || host.includes('twitter.com') || host === 'x.com') return 'X (Twitter)';
+      if (currentHost && host === currentHost) {
+        // Internal navigation/refresh shouldn't overwrite original source
+        return 'Direct (সরাসরি)';
+      }
+      if (host && host !== 'direct') return host.slice(0, 60);
+    } catch {
+      if (lowerRef.includes('youtube') || lowerRef.includes('youtu.be')) return 'YouTube';
+      if (lowerRef.includes('tiktok')) return 'TikTok';
+      if (lowerRef.includes('facebook') || lowerRef.includes('fb.')) return 'Facebook';
+      if (lowerRef.includes('instagram')) return 'Instagram';
+      if (lowerRef.includes('whatsapp')) return 'WhatsApp';
+      if (lowerRef.includes('google')) return 'Google Search';
+    }
+  }
+
+  // 3. Fallback to in-app browser User-Agent signatures (Facebook/TikTok/YouTube apps strip Referer)
+  if (/fban|fbav|fb_iab|fbios|fb4a/i.test(ua)) return 'Facebook (App)';
+  if (/bytedancewebview|tiktok|musical_ly|trill/i.test(ua)) return 'TikTok (App)';
+  if (/instagram/i.test(ua)) return 'Instagram (App)';
+  if (/youtube/i.test(ua)) return 'YouTube (App)';
+  if (/whatsapp/i.test(ua)) return 'WhatsApp';
+  if (/telegram/i.test(ua)) return 'Telegram';
+
+  return 'Direct (সরাসরি)';
+}
+
+function getSessionTrafficSource(): string {
+  const rawReferrer =
+    typeof document !== 'undefined' && document.referrer
+      ? document.referrer.slice(0, 180)
+      : '';
+  const detected = detectTrafficSource(rawReferrer);
+  try {
+    const saved = sessionStorage.getItem(TRAFFIC_SOURCE_SESSION_KEY);
+    if (detected && !detected.startsWith('Direct')) {
+      sessionStorage.setItem(TRAFFIC_SOURCE_SESSION_KEY, detected);
+      return detected;
+    }
+    if (saved) return saved.slice(0, 60);
+    sessionStorage.setItem(TRAFFIC_SOURCE_SESSION_KEY, detected);
+  } catch {
+    // Ignore storage restriction
+  }
+  return detected.slice(0, 60);
+}
+
 interface FirestoreEventDoc {
   type: 'pageview' | 'search' | 'download';
   path: string;
@@ -52,6 +169,7 @@ interface FirestoreEventDoc {
   os: string;
   ipAddress?: string;
   searchKeyword?: string;
+  trafficSource?: string;
   referrer: string;
   visitorHash: string;
   dayKey: string;
@@ -67,6 +185,7 @@ interface FirestorePresenceDoc {
   path: string;
   ipAddress?: string;
   searchKeyword?: string;
+  trafficSource?: string;
   lastSeenAt?: Timestamp | null;
 }
 
@@ -133,6 +252,35 @@ function parseClientUserAgent(): {
   return { device, browser, os };
 }
 
+export async function trackInitialPageviewOnce(payload: {
+  path?: string;
+  label?: string;
+}): Promise<void> {
+  try {
+    if (sessionStorage.getItem(SESSION_PAGEVIEW_KEY) === '1') {
+      return;
+    }
+    const lastAtRaw = localStorage.getItem(LAST_PAGEVIEW_AT_KEY);
+    if (lastAtRaw) {
+      const lastAt = Number(lastAtRaw);
+      if (Number.isFinite(lastAt) && Date.now() - lastAt < PAGEVIEW_COOLDOWN_MS) {
+        sessionStorage.setItem(SESSION_PAGEVIEW_KEY, '1');
+        return;
+      }
+    }
+    sessionStorage.setItem(SESSION_PAGEVIEW_KEY, '1');
+    localStorage.setItem(LAST_PAGEVIEW_AT_KEY, String(Date.now()));
+  } catch {
+    // Proceed if storage is unavailable
+  }
+
+  await trackVisitorEvent({
+    type: 'pageview',
+    path: payload.path,
+    label: payload.label,
+  });
+}
+
 export async function trackVisitorEvent(payload: {
   type: 'pageview' | 'search' | 'download';
   path?: string;
@@ -152,6 +300,7 @@ export async function trackVisitorEvent(payload: {
     typeof document !== 'undefined' && document.referrer
       ? document.referrer.slice(0, 180)
       : 'Direct';
+  const trafficSource = getSessionTrafficSource();
   const fallbackInfo = parseClientUserAgent();
   const [deviceInfo, ipAddress] = await Promise.all([
     detectClientDeviceInfo().catch(() => ({
@@ -176,6 +325,7 @@ export async function trackVisitorEvent(payload: {
       os: deviceInfo.os.slice(0, 40),
       ipAddress: ipAddress.slice(0, 64),
       searchKeyword: activeKeyword.slice(0, 120),
+      trafficSource: trafficSource.slice(0, 60),
       referrer,
       visitorHash: visitorId.slice(0, 64),
       dayKey: getTodayKey(),
@@ -197,6 +347,7 @@ export async function trackVisitorEvent(payload: {
         label: cleanLabel,
         visitorId,
         referrer,
+        trafficSource: trafficSource.slice(0, 60),
         deviceName: deviceInfo.deviceName.slice(0, 100),
         searchKeyword: activeKeyword.slice(0, 120),
       }),
@@ -235,6 +386,7 @@ function buildSummaryFromFirestore(
         path: p.path,
         ipAddress: p.ipAddress,
         searchKeyword: p.searchKeyword,
+        trafficSource: p.trafficSource || 'Direct (সরাসরি)',
         lastActiveSecondsAgo: Math.max(0, Math.round((nowMs - seenMs) / 1000)),
       };
     });
@@ -252,6 +404,7 @@ function buildSummaryFromFirestore(
   >();
   const searchCounts = new Map<string, number>();
   const downloadCounts = new Map<string, { title: string; count: number }>();
+  const sourceCounts = new Map<string, number>();
   const recentEvents: VisitorEventRecord[] = [];
 
   for (const { id, data } of events) {
@@ -270,6 +423,10 @@ function buildSummaryFromFirestore(
       }
     }
 
+    const resolvedSource =
+      (data.trafficSource || '').trim() ||
+      detectTrafficSource(data.referrer, undefined, undefined);
+
     if (data.type === 'pageview') {
       totalVisits += 1;
       bucket.visits += 1;
@@ -277,6 +434,7 @@ function buildSummaryFromFirestore(
       if (data.device in deviceCounts) {
         deviceCounts[data.device] += 1;
       }
+      sourceCounts.set(resolvedSource, (sourceCounts.get(resolvedSource) || 0) + 1);
     } else if (data.type === 'download') {
       totalDownloads += 1;
       bucket.downloads += 1;
@@ -309,6 +467,7 @@ function buildSummaryFromFirestore(
         os: data.os,
         ipAddress: data.ipAddress,
         searchKeyword: data.searchKeyword,
+        trafficSource: resolvedSource,
         referrer: data.referrer || 'Direct',
         timestamp: data.createdAt
           ? data.createdAt.toDate().toISOString()
@@ -337,6 +496,11 @@ function buildSummaryFromFirestore(
     .sort((a, b) => b.count - a.count)
     .slice(0, 6);
 
+  const topSources = Array.from(sourceCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([source, count]) => ({ source, count }));
+
   return {
     liveVisitorsCount: activeVisitors.length,
     activeVisitors,
@@ -350,6 +514,7 @@ function buildSummaryFromFirestore(
     dailyTrend,
     topSearches,
     topDownloads,
+    topSources,
     recentEvents,
     updatedAt: new Date().toISOString(),
   };
@@ -425,6 +590,7 @@ export function startVisitorPresence(getPath: () => string): () => void {
     ]);
     if (stopped) return;
     const cleanPath = (getPath() || '/').slice(0, 120) || '/';
+    const trafficSource = getSessionTrafficSource();
 
     // Write presence to Firestore (real-time across Vercel & AI Studio)
     setDoc(doc(db, PRESENCE_COLLECTION, visitorId), {
@@ -436,6 +602,7 @@ export function startVisitorPresence(getPath: () => string): () => void {
       path: cleanPath,
       ipAddress: ipAddress.slice(0, 64),
       searchKeyword: latestSearchKeyword.slice(0, 120),
+      trafficSource: trafficSource.slice(0, 60),
       lastSeenAt: serverTimestamp(),
     }).catch(() => {});
 
@@ -449,6 +616,7 @@ export function startVisitorPresence(getPath: () => string): () => void {
         path: cleanPath,
         deviceName: deviceInfo.deviceName.slice(0, 100),
         searchKeyword: latestSearchKeyword.slice(0, 120),
+        trafficSource: trafficSource.slice(0, 60),
       }),
     }).catch(() => {});
   };

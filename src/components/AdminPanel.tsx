@@ -108,6 +108,8 @@ interface AdminPanelProps {
   onGoogleLoginRedirect?: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
   onClearDriveToken?: () => void;
   onLogout: () => Promise<void>;
+  onSwitchAccount?: () => Promise<void>;
+  onReverifyAdmin?: () => Promise<void>;
 }
 
 function isDriveScopeOrAuthError(err: unknown): boolean {
@@ -153,6 +155,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   onGoogleLoginRedirect,
   onClearDriveToken,
   onLogout,
+  onSwitchAccount,
+  onReverifyAdmin,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('files');
 
@@ -705,7 +709,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         ev.os,
         ev.browser,
         ev.ipAddress || '—',
-        ev.referrer || 'Direct',
+        ev.trafficSource || ev.referrer || 'Direct (সরাসরি)',
       ]
         .map(escapeCsv)
         .join(',');
@@ -994,14 +998,39 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             অ্যাকাউন্ট দিয়ে সাইন ইন করেছেন, কিন্তু এই অ্যাকাউন্টে জননী টেলিকম
             অ্যান্ড মোবাইল সার্ভিসিং ট্রেনিং সেন্টারের অ্যাডমিন অনুমতি নেই।
           </p>
-          <div className="mt-6">
+          <p className="mt-2 text-xs text-slate-500">
+            অনুমোদিত অ্যাডমিন জিমেইল (<span className="font-mono">sflove087@gmail.com</span>,{' '}
+            <span className="font-mono">jononitelecom266366@gmail.com</span> বা প্রধান অ্যাডমিন)
+            বেছে নিয়ে লগইন করুন।
+          </p>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            {onSwitchAccount && (
+              <button
+                type="button"
+                onClick={onSwitchAccount}
+                className="inline-flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 cursor-pointer"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                <span>অন্য গুগল অ্যাকাউন্ট দিয়ে সাইন-ইন করুন</span>
+              </button>
+            )}
+            {onReverifyAdmin && (
+              <button
+                type="button"
+                onClick={onReverifyAdmin}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 cursor-pointer"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>পুনরায় যাচাই করুন</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={onLogout}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
-              <span>সাইন আউট করে অন্য অ্যাকাউন্ট দিন</span>
+              <span>সাইন আউট করুন</span>
             </button>
           </div>
         </div>
@@ -2018,6 +2047,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                                 সার্চ: &quot;{v.searchKeyword}&quot;
                               </p>
                             )}
+                            <p className="text-[11px] font-medium text-sky-700 truncate">
+                              সোর্স: {v.trafficSource || 'Direct (সরাসরি)'}
+                            </p>
                             <p className="font-mono text-[11px] text-slate-500 truncate">
                               পেজ: {v.path} · ID #{v.id}
                             </p>
@@ -2033,8 +2065,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   )}
                 </div>
 
-                {/* Device Breakdown & Top Searches / Top Downloads */}
-                <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+                {/* Device Breakdown, Traffic Sources & Top Searches / Top Downloads */}
+                <div className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-4">
                   {/* Device Breakdown */}
                   <div className="card-3d rounded-xl border border-slate-200 bg-white p-5">
                     <h3 className="font-display text-sm font-bold text-slate-900">
@@ -2101,6 +2133,35 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Traffic Sources (YouTube / TikTok / Facebook / Google / Direct) */}
+                  <div className="card-3d rounded-xl border border-slate-200 bg-white p-5">
+                    <h3 className="font-display text-sm font-bold text-slate-900">
+                      কোথা থেকে এসেছে (Traffic Source)
+                    </h3>
+                    {!visitorSummary.topSources ||
+                    visitorSummary.topSources.length === 0 ? (
+                      <p className="mt-4 text-xs text-slate-500">
+                        YouTube, TikTok, Facebook বা Google থেকে ভিজিট এলে এখানে দেখা যাবে।
+                      </p>
+                    ) : (
+                      <ul className="mt-3 divide-y divide-slate-100 text-xs">
+                        {visitorSummary.topSources.map((src) => (
+                          <li
+                            key={src.source}
+                            className="flex items-center justify-between py-2"
+                          >
+                            <span className="font-semibold text-slate-800 truncate pr-2">
+                              {src.source}
+                            </span>
+                            <span className="font-mono font-semibold text-indigo-700 tabular-nums shrink-0">
+                              {src.count} জন
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
 
                   {/* Top Searched Models */}
@@ -2240,8 +2301,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                               <td className="px-4 py-2.5 font-mono text-[11px] text-slate-700 whitespace-nowrap">
                                 {ev.ipAddress || '—'}
                               </td>
-                              <td className="px-4 py-2.5 text-slate-500 max-w-[160px] truncate">
-                                {ev.referrer || 'Direct'}
+                              <td className="px-4 py-2.5 text-slate-700 max-w-[180px]">
+                                <p className="font-semibold text-sky-800 truncate">
+                                  {ev.trafficSource || 'Direct (সরাসরি)'}
+                                </p>
+                                {ev.referrer &&
+                                  ev.referrer !== 'Direct' &&
+                                  ev.referrer !== ev.trafficSource && (
+                                    <p className="font-mono text-[10px] text-slate-400 truncate">
+                                      {ev.referrer}
+                                    </p>
+                                  )}
                               </td>
                             </tr>
                           ))}
