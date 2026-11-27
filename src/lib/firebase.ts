@@ -82,6 +82,7 @@ export function isPrimaryAdminEmail(
 }
 
 export const PENDING_ADMIN_REDIRECT_KEY = 'jt_pending_admin_redirect';
+const REDIRECT_FAILED_KEY = 'jt_redirect_failed';
 
 export function markPendingAdminRedirect(): void {
   try {
@@ -98,6 +99,30 @@ export function consumePendingAdminRedirect(): boolean {
     return val;
   } catch {
     return false;
+  }
+}
+
+function hasRedirectFailedInSession(): boolean {
+  try {
+    return sessionStorage.getItem(REDIRECT_FAILED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function markRedirectFailedInSession(): void {
+  try {
+    sessionStorage.setItem(REDIRECT_FAILED_KEY, '1');
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function clearRedirectFailedInSession(): void {
+  try {
+    sessionStorage.removeItem(REDIRECT_FAILED_KEY);
+  } catch {
+    // Ignore storage errors
   }
 }
 
@@ -256,11 +281,13 @@ export const initAuth = (
   onAuthChange: (user: User | null, accessToken: string | null) => void,
   onAuthError?: (message: string) => void
 ) => {
+  const hadPendingRedirect = consumePendingAdminRedirect();
+
   // Recover any pending OAuth redirect credential if signInWithRedirect ran
   getRedirectResult(auth)
     .then(async (redirectResult) => {
-      consumePendingAdminRedirect();
       if (redirectResult) {
+        clearRedirectFailedInSession();
         const credential =
           GoogleAuthProvider.credentialFromResult(redirectResult);
         if (
@@ -270,10 +297,17 @@ export const initAuth = (
           cachedAccessToken = credential.accessToken;
         }
         onAuthChange(redirectResult.user, cachedAccessToken);
+      } else if (hadPendingRedirect && !auth.currentUser) {
+        markRedirectFailedInSession();
+        if (onAuthError) {
+          onAuthError(
+            'রিডাইরেক্ট লগইন সেশন সম্পূর্ণ হয়নি (সম্ভবত ব্রাউজারে থার্ড-পার্টি কুকি বন্ধ আছে)। অনুগ্রহ করে নিচের সবুজ "সরাসরি Google সাইন-ইন (FedCM)" বাটনটি ব্যবহার করুন অথবা ব্রাউজার সেটিংস থেকে কুকি ও পপআপ Allow করুন।'
+          );
+        }
       }
     })
     .catch((err) => {
-      consumePendingAdminRedirect();
+      markRedirectFailedInSession();
       console.error('Redirect auth check error:', err);
       if (onAuthError && !auth.currentUser) {
         onAuthError(formatAuthErrorMessage(err));
@@ -282,6 +316,7 @@ export const initAuth = (
 
   return onAuthStateChanged(auth, (user: User | null) => {
     if (user) {
+      clearRedirectFailedInSession();
       if (!isSigningIn && !cachedAccessToken) {
         onAuthChange(user, null);
       } else {
@@ -332,6 +367,23 @@ export const googleSignIn = async (
     if (!forceConsent && auth.currentUser) {
       return { user: auth.currentUser, accessToken: cachedAccessToken };
     }
+    const errCode =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String((err as { code?: unknown }).code)
+        : '';
+    const inTopWindow =
+      typeof window !== 'undefined' && window.self === window.top;
+    if (
+      (errCode === 'auth/popup-blocked' ||
+        errCode === 'auth/operation-not-supported-in-this-environment') &&
+      inTopWindow &&
+      !forceConsent &&
+      !hasRedirectFailedInSession()
+    ) {
+      markPendingAdminRedirect();
+      await signInWithRedirect(auth, activeProvider);
+      return null;
+    }
     throw new Error(formatAuthErrorMessage(err));
   } finally {
     isSigningIn = false;
@@ -349,6 +401,7 @@ export const signInWithGoogleIdToken = async (
     isSigningIn = true;
     const credential = GoogleAuthProvider.credential(idToken);
     const result = await signInWithCredential(auth, credential);
+    clearRedirectFailedInSession();
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (err: unknown) {
     throw new Error(formatAuthErrorMessage(err));
@@ -362,6 +415,7 @@ export const googleSignInRedirect = async (
 ): Promise<void> => {
   const activeProvider = resolveProviderForConsent(forceConsent);
   try {
+    clearRedirectFailedInSession();
     markPendingAdminRedirect();
     await signInWithRedirect(auth, activeProvider);
   } catch (err: unknown) {

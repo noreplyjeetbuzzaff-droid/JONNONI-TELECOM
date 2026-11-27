@@ -422,6 +422,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
+  const handleRedirectLoginClick = async () => {
+    if (!onGoogleLoginRedirect) return;
+    setLoggingIn(true);
+    setLoginError(null);
+    try {
+      await onGoogleLoginRedirect(false);
+    } catch (err) {
+      setLoginError(
+        err instanceof Error
+          ? err.message
+          : 'রিডাইরেক্ট গুগল সাইন-ইন শুরু করা যায়নি।'
+      );
+      setLoggingIn(false);
+    }
+  };
+
   const handleFileChange = (file: File | null) => {
     setSelectedFile(file);
     setUploadError(null);
@@ -945,16 +961,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             <GoogleIdentitySignIn
               onCredential={handleGoogleIdToken}
               disabled={loggingIn}
+              highlight={Boolean(
+                activeLoginError?.includes('popup-blocked') ||
+                  activeLoginError?.includes('পপআপ') ||
+                  activeLoginError?.includes('কুকি')
+              )}
             />
           )}
+
+          {!inIframe &&
+            onGoogleLoginRedirect &&
+            Boolean(
+              activeLoginError?.includes('popup-blocked') ||
+                activeLoginError?.includes('পপআপ')
+            ) && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-950">
+                <p className="font-semibold text-amber-900">
+                  পপআপ ছাড়াই লগইন করুন (Safari / Mobile Browser):
+                </p>
+                <p className="mt-1 leading-relaxed text-amber-900">
+                  আপনার ব্রাউজার পপআপ ব্লক করে রাখলে পপআপ ছাড়াই সরাসরি একই
+                  ট্যাবে গুগল রিডাইরেক্ট লগইন করতে নিচের বাটনে চাপুন:
+                </p>
+                <button
+                  type="button"
+                  onClick={handleRedirectLoginClick}
+                  disabled={loggingIn}
+                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-md bg-amber-700 px-3.5 py-2 font-semibold text-white hover:bg-amber-800 cursor-pointer disabled:opacity-60"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>পপআপ ছাড়াই Google Redirect লগইন করুন</span>
+                </button>
+              </div>
+            )}
 
           {(inIframe || (activeLoginError && !isUnauthorizedDomain)) && (
             <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
               <p className="leading-relaxed">
-                প্রিভিউ বা মোবাইলে লগইন পপআপ ব্লক হলে নিচের বাটনে ক্লিক করে
-                সরাসরি Chrome/Safari ব্রাউজারের নতুন ট্যাবে খুলে{' '}
-                <span className="font-semibold">Sign in with Google</span>{' '}
-                চাপুন:
+                {inIframe ? (
+                  <>
+                    প্রিভিউ ফ্রেমের ভেতরে ব্রাউজার পপআপ ব্লক করতে পারে। নিচের
+                    বাটনে ক্লিক করে সরাসরি Chrome/Safari-এর নতুন ট্যাবে খুলে
+                    লগইন করুন (অথবা Facebook/Messenger-এর ভেতর থেকে খুললে উপরে
+                    ডানদিকে <strong>⋮ → Open in Chrome</strong> চাপুন):
+                  </>
+                ) : (
+                  <>
+                    লগইন সম্পন্ন না হলে নিচের লিংকে ক্লিক করে নতুন ট্যাবে খুলুন
+                    এবং ব্রাউজার ঠিকানার বাম দিকের{' '}
+                    <strong>Lock / Site Settings → Pop-ups Allow</strong> দিন:
+                  </>
+                )}
               </p>
               <a
                 href={adminTabUrl}
