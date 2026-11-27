@@ -814,21 +814,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     };
 
-    const handleRedirectLoginClick = async () => {
-      if (!onGoogleLoginRedirect) return;
-      setLoggingIn(true);
-      setLoginError(null);
+    const adminTabUrl = (() => {
+      if (typeof window === 'undefined') return '/?view=admin';
       try {
-        await onGoogleLoginRedirect(false);
-      } catch (err) {
-        setLoginError(
-          err instanceof Error
-            ? err.message
-            : 'গুগল রিডাইরেক্ট সাইন-ইন ব্যর্থ হয়েছে।'
-        );
-        setLoggingIn(false);
+        const url = new URL(window.location.href);
+        url.searchParams.set('view', 'admin');
+        return url.toString();
+      } catch {
+        return '/?view=admin';
       }
-    };
+    })();
 
     return (
       <section className="mx-auto max-w-lg px-4 py-12 sm:px-6">
@@ -926,36 +921,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             )}
           </div>
 
-          {!inIframe && onGoogleLoginRedirect && (
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={handleRedirectLoginClick}
-                disabled={loggingIn}
-                className="text-xs font-medium text-sky-700 hover:text-sky-800 underline underline-offset-4 cursor-pointer disabled:opacity-60"
-              >
-                পপআপ ব্লক হলে রিডাইরেক্ট মোডে লগইন করুন
-              </button>
-            </div>
-          )}
-
           {(inIframe || (activeLoginError && !isUnauthorizedDomain)) && (
             <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
               <p className="leading-relaxed">
-                প্রিভিউ বা মোবাইলে লগইন পপআপ ব্লক হলে নিচের বাটনে
-                ক্লিক করে অ্যাপটি নতুন ব্রাউজার ট্যাবে খুলে লগইন করুন:
+                প্রিভিউ বা মোবাইলে লগইন পপআপ ব্লক হলে নিচের বাটনে ক্লিক করে
+                সরাসরি Chrome/Safari ব্রাউজারের নতুন ট্যাবে খুলে{' '}
+                <span className="font-semibold">Sign in with Google</span>{' '}
+                চাপুন:
               </p>
               <a
-                href={(() => {
-                  if (typeof window === 'undefined') return '/?view=admin';
-                  try {
-                    const url = new URL(window.location.href);
-                    url.searchParams.set('view', 'admin');
-                    return url.toString();
-                  } catch {
-                    return '/?view=admin';
-                  }
-                })()}
+                href={adminTabUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 font-semibold text-white hover:bg-sky-700"

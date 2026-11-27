@@ -259,8 +259,8 @@ export const initAuth = (
   // Recover any pending OAuth redirect credential if signInWithRedirect ran
   getRedirectResult(auth)
     .then(async (redirectResult) => {
+      consumePendingAdminRedirect();
       if (redirectResult) {
-        markPendingAdminRedirect();
         const credential =
           GoogleAuthProvider.credentialFromResult(redirectResult);
         if (
@@ -270,10 +270,6 @@ export const initAuth = (
           cachedAccessToken = credential.accessToken;
         }
         onAuthChange(redirectResult.user, cachedAccessToken);
-      } else if (!auth.currentUser && consumePendingAdminRedirect()) {
-        onAuthError?.(
-          'ব্রাউজারে থার্ড-পার্টি কুকি বন্ধ থাকায় রিডাইরেক্ট লগইন সম্পূর্ণ হয়নি। অনুগ্রহ করে সরাসরি "Sign in with Google" বাটনে ক্লিক করুন।'
-        );
       }
     })
     .catch((err) => {
@@ -316,6 +312,7 @@ export const googleSignIn = async (
   user: User;
   accessToken: string | null;
 } | null> => {
+  consumePendingAdminRedirect();
   const activeProvider = resolveProviderForConsent(forceConsent);
   try {
     isSigningIn = true;

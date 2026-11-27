@@ -385,7 +385,8 @@ export default function App() {
   };
 
   const handleSwitchAccount = async () => {
-    await handleLogout();
+    clearDriveAccessToken();
+    setAccessToken(null);
     await handleGoogleLogin(false);
   };
 
