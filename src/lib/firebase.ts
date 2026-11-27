@@ -4,7 +4,6 @@ import {
   getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
-  signInWithCredential,
   signInWithPopup,
   signInWithRedirect,
   User,
@@ -209,13 +208,13 @@ function formatAuthErrorMessage(err: unknown): string {
   const rawMessage = err instanceof Error ? err.message : String(err);
 
   if (code === 'auth/popup-blocked') {
-    return 'আপনার ব্রাউজার লগইন পপআপ ব্লক করেছে। ব্রাউজার সেটিংস থেকে Pop-up Allow করুন অথবা নিচের "নতুন ট্যাবে খুলে লগইন করুন" লিংকে ক্লিক করুন। (auth/popup-blocked)';
+    return 'আপনার ব্রাউজার লগইন পপআপ ব্লক করেছে। ব্রাউজারের ঠিকানার বাম পাশের আইকন থেকে Pop-ups Allow করুন, অথবা নিচের "পপআপ ছাড়াই Google Redirect লগইন করুন" / "নতুন ট্যাবে খুলে লগইন করুন" বাটনে ক্লিক করুন। (auth/popup-blocked)';
   }
   if (
     code === 'auth/popup-closed-by-user' ||
     code === 'auth/cancelled-popup-request'
   ) {
-    return 'গুগল সাইন-ইন পপআপ সম্পূর্ণ হওয়ার আগেই বন্ধ হয়েছে অথবা ব্রাউজারের থার্ড-পার্টি কুকি বন্ধ থাকায় সেশন ফিরে আসেনি। নিচের "থার্ড-পার্টি কুকি বন্ধ থাকলে — সরাসরি Google অ্যাকাউন্ট দিয়ে সাইন ইন" বাটন অথবা "নতুন ট্যাবে খুলে লগইন করুন" ব্যবহার করুন।';
+    return 'গুগল সাইন-ইন পপআপ সম্পূর্ণ হওয়ার আগেই বন্ধ হয়েছে অথবা ব্রাউজারের থার্ড-পার্টি কুকি বন্ধ থাকায় সেশন ফিরে আসেনি। Chrome-এ কুকি ও পপআপ Allow করে অথবা নতুন ট্যাবে খুলে আবার চেষ্টা করুন।';
   }
   if (code === 'auth/unauthorized-domain') {
     const host =
@@ -226,7 +225,7 @@ function formatAuthErrorMessage(err: unknown): string {
     return 'ইন্টারনেট সংযোগের সমস্যার কারণে গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে নেটওয়ার্ক যাচাই করে আবার চেষ্টা করুন।';
   }
   if (code === 'auth/web-storage-unsupported') {
-    return 'আপনার ব্রাউজারে কুকি বা স্টোরেজ ব্লক করা আছে। প্রাইভেট মোড বন্ধ করে, কুকি চালু করে অথবা নিচের সরাসরি গুগল বাটন দিয়ে চেষ্টা করুন।';
+    return 'আপনার ব্রাউজারে কুকি বা স্টোরেজ ব্লক করা আছে। প্রাইভেট মোড বন্ধ করে বা কুকি চালু করে চেষ্টা করুন।';
   }
   if (
     code === 'auth/operation-not-allowed' ||
@@ -301,7 +300,7 @@ export const initAuth = (
         markRedirectFailedInSession();
         if (onAuthError) {
           onAuthError(
-            'রিডাইরেক্ট লগইন সেশন সম্পূর্ণ হয়নি (সম্ভবত ব্রাউজারে থার্ড-পার্টি কুকি বন্ধ আছে)। অনুগ্রহ করে নিচের সবুজ "সরাসরি Google সাইন-ইন (FedCM)" বাটনটি ব্যবহার করুন অথবা ব্রাউজার সেটিংস থেকে কুকি ও পপআপ Allow করুন।'
+            'রিডাইরেক্ট লগইন সেশন সম্পূর্ণ হয়নি (ব্রাউজারে থার্ড-পার্টি কুকি বন্ধ থাকায়)। Chrome ঠিকানার বাম পাশের সেটিংস থেকে কুকি ও পপআপ Allow করে সরাসরি "Sign in with Google" বাটনে ক্লিক করুন।'
           );
         }
       }
@@ -384,26 +383,6 @@ export const googleSignIn = async (
       await signInWithRedirect(auth, activeProvider);
       return null;
     }
-    throw new Error(formatAuthErrorMessage(err));
-  } finally {
-    isSigningIn = false;
-  }
-};
-
-export const signInWithGoogleIdToken = async (
-  idToken: string
-): Promise<{
-  user: User;
-  accessToken: string | null;
-}> => {
-  consumePendingAdminRedirect();
-  try {
-    isSigningIn = true;
-    const credential = GoogleAuthProvider.credential(idToken);
-    const result = await signInWithCredential(auth, credential);
-    clearRedirectFailedInSession();
-    return { user: result.user, accessToken: cachedAccessToken };
-  } catch (err: unknown) {
     throw new Error(formatAuthErrorMessage(err));
   } finally {
     isSigningIn = false;

@@ -12,7 +12,6 @@ import {
   initAuth,
   logout,
   PENDING_ADMIN_REDIRECT_KEY,
-  signInWithGoogleIdToken,
 } from './lib/firebase';
 import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
 import {
@@ -358,29 +357,6 @@ export default function App() {
     }
   };
 
-  const handleGoogleIdTokenLogin = async (idToken: string) => {
-    setAuthRedirectError(null);
-    const result = await signInWithGoogleIdToken(idToken);
-    currentUidRef.current = result.user.uid;
-    setUser(result.user);
-    setAccessToken(result.accessToken);
-    const adminStatus = await resolveAdminForUser(result.user);
-    setIsAdmin(adminStatus);
-    if (adminStatus) {
-      setActiveView('admin');
-      try {
-        sessionStorage.setItem(`jt_login_logged_${result.user.uid}`, '1');
-      } catch {
-        // ignore
-      }
-      recordAdminLoginEvent({
-        user: result.user,
-        eventType: 'admin_login',
-        status: 'success',
-      });
-    }
-  };
-
   const handleGoogleLoginRedirect = async (
     forceDriveConsent: GoogleConsentMode = false
   ) => {
@@ -490,7 +466,6 @@ export default function App() {
               authRedirectError={authRedirectError}
               siteSettings={siteSettings}
               onGoogleLogin={handleGoogleLogin}
-              onGoogleIdTokenLogin={handleGoogleIdTokenLogin}
               onGoogleLoginRedirect={handleGoogleLoginRedirect}
               onClearDriveToken={handleClearDriveToken}
               onLogout={handleLogout}
