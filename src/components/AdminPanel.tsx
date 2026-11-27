@@ -90,6 +90,7 @@ import {
 } from '../lib/firebase';
 import { AdminManagementTab } from './AdminManagementTab';
 import { AdminSeoModule } from './AdminSeoModule';
+import { GoogleIdentitySignIn } from './GoogleIdentitySignIn';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { ConfirmDialog } from './ConfirmDialog';
 import { EditFileModal } from './EditFileModal';
@@ -105,6 +106,7 @@ interface AdminPanelProps {
   authRedirectError?: string | null;
   siteSettings: SiteSettings;
   onGoogleLogin: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
+  onGoogleIdTokenLogin?: (idToken: string) => Promise<void>;
   onGoogleLoginRedirect?: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
   onClearDriveToken?: () => void;
   onLogout: () => Promise<void>;
@@ -152,6 +154,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   authRedirectError,
   siteSettings,
   onGoogleLogin,
+  onGoogleIdTokenLogin,
   onGoogleLoginRedirect,
   onClearDriveToken,
   onLogout,
@@ -396,6 +399,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         err instanceof Error
           ? err.message
           : 'গুগল সাইন-ইন বাতিল হয়েছে বা ব্যর্থ হয়েছে।'
+      );
+    } finally {
+      setLoggingIn(false);
+    }
+  };
+
+  const handleGoogleIdToken = async (idToken: string) => {
+    if (!onGoogleIdTokenLogin) return;
+    setLoggingIn(true);
+    setLoginError(null);
+    try {
+      await onGoogleIdTokenLogin(idToken);
+    } catch (err) {
+      setLoginError(
+        err instanceof Error
+          ? err.message
+          : 'সরাসরি গুগল সাইন-ইন ব্যর্থ হয়েছে।'
       );
     } finally {
       setLoggingIn(false);
@@ -920,6 +940,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <LoadingSpinner size="sm" className="text-sky-600" />
             )}
           </div>
+
+          {onGoogleIdTokenLogin && (
+            <GoogleIdentitySignIn
+              onCredential={handleGoogleIdToken}
+              disabled={loggingIn}
+            />
+          )}
 
           {(inIframe || (activeLoginError && !isUnauthorizedDomain)) && (
             <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">

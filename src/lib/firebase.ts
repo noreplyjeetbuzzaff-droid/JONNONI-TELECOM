@@ -1,11 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import {
-  browserLocalPersistence,
   getAuth,
   getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
-  setPersistence,
+  signInWithCredential,
   signInWithPopup,
   signInWithRedirect,
   User,
@@ -16,8 +15,9 @@ import firebaseConfig from '../../firebase-applet-config.json';
 const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+// Keep getAuth default persistence cascade (IndexedDB -> localStorage -> sessionStorage -> inMemory)
+// so auth state never breaks in third-party-cookie-blocked iframes or strict mobile browsers.
 export const auth = getAuth(app);
-setPersistence(auth, browserLocalPersistence).catch(() => {});
 
 // Primary Admin Auth provider (no sensitive Drive scope, avoids OAuth unverified-app blocks)
 const provider = new GoogleAuthProvider();
@@ -190,7 +190,7 @@ function formatAuthErrorMessage(err: unknown): string {
     code === 'auth/popup-closed-by-user' ||
     code === 'auth/cancelled-popup-request'
   ) {
-    return 'গুগল সাইন-ইন পপআপ সম্পূর্ণ হওয়ার আগেই বন্ধ হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
+    return 'গুগল সাইন-ইন পপআপ সম্পূর্ণ হওয়ার আগেই বন্ধ হয়েছে অথবা ব্রাউজারের থার্ড-পার্টি কুকি বন্ধ থাকায় সেশন ফিরে আসেনি। নিচের "থার্ড-পার্টি কুকি বন্ধ থাকলে — সরাসরি Google অ্যাকাউন্ট দিয়ে সাইন ইন" বাটন অথবা "নতুন ট্যাবে খুলে লগইন করুন" ব্যবহার করুন।';
   }
   if (code === 'auth/unauthorized-domain') {
     const host =
@@ -201,7 +201,7 @@ function formatAuthErrorMessage(err: unknown): string {
     return 'ইন্টারনেট সংযোগের সমস্যার কারণে গুগল সাইন-ইন ব্যর্থ হয়েছে। অনুগ্রহ করে নেটওয়ার্ক যাচাই করে আবার চেষ্টা করুন।';
   }
   if (code === 'auth/web-storage-unsupported') {
-    return 'আপনার ব্রাউজারে কুকি বা স্টোরেজ ব্লক করা আছে। প্রাইভেট মোড বন্ধ করে বা কুকি চালু করে চেষ্টা করুন।';
+    return 'আপনার ব্রাউজারে কুকি বা স্টোরেজ ব্লক করা আছে। প্রাইভেট মোড বন্ধ করে, কুকি চালু করে অথবা নিচের সরাসরি গুগল বাটন দিয়ে চেষ্টা করুন।';
   }
   if (
     code === 'auth/operation-not-allowed' ||
@@ -275,7 +275,7 @@ export const initAuth = (
     .catch((err) => {
       consumePendingAdminRedirect();
       console.error('Redirect auth check error:', err);
-      if (onAuthError) {
+      if (onAuthError && !auth.currentUser) {
         onAuthError(formatAuthErrorMessage(err));
       }
     });
@@ -287,7 +287,7 @@ export const initAuth = (
       } else {
         onAuthChange(user, cachedAccessToken);
       }
-    } else {
+    } else if (!isSigningIn) {
       cachedAccessToken = null;
       onAuthChange(null, null);
     }
@@ -326,6 +326,29 @@ export const googleSignIn = async (
     ) {
       cachedAccessToken = credential.accessToken;
     }
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (err: unknown) {
+    await auth.authStateReady().catch(() => {});
+    if (!forceConsent && auth.currentUser) {
+      return { user: auth.currentUser, accessToken: cachedAccessToken };
+    }
+    throw new Error(formatAuthErrorMessage(err));
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+export const signInWithGoogleIdToken = async (
+  idToken: string
+): Promise<{
+  user: User;
+  accessToken: string | null;
+}> => {
+  consumePendingAdminRedirect();
+  try {
+    isSigningIn = true;
+    const credential = GoogleAuthProvider.credential(idToken);
+    const result = await signInWithCredential(auth, credential);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (err: unknown) {
     throw new Error(formatAuthErrorMessage(err));

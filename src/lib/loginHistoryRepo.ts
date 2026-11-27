@@ -13,7 +13,7 @@ import {
   doc,
   Unsubscribe,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, getEffectiveUserEmail } from './firebase';
 
 const COLLECTION_NAME = 'login_history';
 
@@ -171,7 +171,10 @@ export async function recordAdminLoginEvent(params: {
   errorMessage?: string;
 }): Promise<void> {
   const { user, eventType, status, errorMessage = '' } = params;
-  if (!user.email || !user.emailVerified) return;
+  const effectiveEmail = getEffectiveUserEmail(user);
+  const hasGoogleProvider =
+    user.providerData?.some((p) => p?.providerId === 'google.com') ?? false;
+  if (!effectiveEmail || (!user.emailVerified && !hasGoogleProvider)) return;
 
   try {
     const [deviceInfo, ipAddress] = await Promise.all([
@@ -182,11 +185,12 @@ export async function recordAdminLoginEvent(params: {
 
     await setDoc(doc(db, COLLECTION_NAME, entryId), {
       uid: user.uid.slice(0, 128),
-      email: user.email.slice(0, 160),
-      displayName: (user.displayName || user.email.split('@')[0] || 'Admin').slice(
-        0,
-        80
-      ),
+      email: effectiveEmail.slice(0, 160),
+      displayName: (
+        user.displayName ||
+        effectiveEmail.split('@')[0] ||
+        'Admin'
+      ).slice(0, 80),
       eventType,
       status,
       deviceType: deviceInfo.deviceType,

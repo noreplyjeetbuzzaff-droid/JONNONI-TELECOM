@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { User } from 'firebase/auth';
 import {
   auth,
@@ -12,6 +12,7 @@ import {
   initAuth,
   logout,
   PENDING_ADMIN_REDIRECT_KEY,
+  signInWithGoogleIdToken,
 } from './lib/firebase';
 import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
 import {
@@ -28,6 +29,7 @@ import { DEFAULT_SITE_SETTINGS, SiteSettings } from './types/siteSettings';
 import { Navbar } from './components/Navbar';
 import { PublicCatalog } from './components/PublicCatalog';
 import { AdminPanel } from './components/AdminPanel';
+import { AdminErrorBoundary } from './components/AdminErrorBoundary';
 import { AdSenseScriptLoader } from './components/AdSenseBanner';
 import { LegalPoliciesModal, PolicyTab } from './components/LegalPoliciesModal';
 import { CookieConsentBanner } from './components/CookieConsentBanner';
@@ -84,6 +86,7 @@ export default function App() {
   const [authRedirectError, setAuthRedirectError] = useState<string | null>(
     null
   );
+  const currentUidRef = useRef<string | null>(null);
 
   const [publicFiles, setPublicFiles] = useState<FlashFileRecord[]>([]);
   const [publicLoading, setPublicLoading] = useState(true);
@@ -171,20 +174,26 @@ export default function App() {
   const resolveAdminForUser = useCallback(async (firebaseUser: User) => {
     let resolvedEmail = getEffectiveUserEmail(firebaseUser);
     let resolvedVerified = firebaseUser.emailVerified;
-    const hasGoogleProvider =
+    let hasGoogleProvider =
       firebaseUser.providerData?.some(
         (p) => p?.providerId === 'google.com'
       ) ?? false;
 
-    if (!resolvedEmail) {
+    if (!resolvedEmail || (!resolvedVerified && !hasGoogleProvider)) {
       try {
         const tokenRes = await firebaseUser.getIdTokenResult();
         const claimEmail = tokenRes.claims?.email;
-        if (typeof claimEmail === 'string' && claimEmail.trim()) {
+        if (!resolvedEmail && typeof claimEmail === 'string' && claimEmail.trim()) {
           resolvedEmail = claimEmail.trim();
         }
         if (tokenRes.claims?.email_verified === true) {
           resolvedVerified = true;
+        }
+        const firebaseClaim = tokenRes.claims?.firebase as
+          | { sign_in_provider?: string }
+          | undefined;
+        if (firebaseClaim?.sign_in_provider === 'google.com') {
+          hasGoogleProvider = true;
         }
       } catch {
         // Ignore token claim fallback error
@@ -205,7 +214,10 @@ export default function App() {
       async (firebaseUser, token) => {
         try {
           if (firebaseUser) {
-            setAuthChecking(true);
+            const isNewUid = currentUidRef.current !== firebaseUser.uid;
+            if (isNewUid) {
+              currentUidRef.current = firebaseUser.uid;
+            }
             setUser(firebaseUser);
             setAccessToken(token || getAccessToken());
             setAuthRedirectError(null);
@@ -231,6 +243,7 @@ export default function App() {
               }
             }
           } else {
+            currentUidRef.current = null;
             setUser(null);
             setAccessToken(null);
             setIsAdmin(false);
@@ -281,18 +294,10 @@ export default function App() {
     try {
       const result = await googleSignIn(forceDriveConsent);
       if (result) {
+        currentUidRef.current = result.user.uid;
         setUser(result.user);
         setAccessToken(result.accessToken);
-        const hasGoogleProvider =
-          result.user.providerData?.some(
-            (p) => p?.providerId === 'google.com'
-          ) ?? false;
-        const adminStatus = await checkIsAdmin(
-          result.user.uid,
-          getEffectiveUserEmail(result.user),
-          result.user.emailVerified,
-          hasGoogleProvider
-        );
+        const adminStatus = await resolveAdminForUser(result.user);
         setIsAdmin(adminStatus);
         if (adminStatus) {
           setActiveView('admin');
@@ -328,6 +333,7 @@ export default function App() {
     } catch (err) {
       if (auth.currentUser && !forceDriveConsent) {
         const recoveredAdmin = await resolveAdminForUser(auth.currentUser);
+        currentUidRef.current = auth.currentUser.uid;
         setUser(auth.currentUser);
         setIsAdmin(recoveredAdmin);
         if (recoveredAdmin) {
@@ -349,6 +355,29 @@ export default function App() {
         });
       }
       throw err;
+    }
+  };
+
+  const handleGoogleIdTokenLogin = async (idToken: string) => {
+    setAuthRedirectError(null);
+    const result = await signInWithGoogleIdToken(idToken);
+    currentUidRef.current = result.user.uid;
+    setUser(result.user);
+    setAccessToken(result.accessToken);
+    const adminStatus = await resolveAdminForUser(result.user);
+    setIsAdmin(adminStatus);
+    if (adminStatus) {
+      setActiveView('admin');
+      try {
+        sessionStorage.setItem(`jt_login_logged_${result.user.uid}`, '1');
+      } catch {
+        // ignore
+      }
+      recordAdminLoginEvent({
+        user: result.user,
+        eventType: 'admin_login',
+        status: 'success',
+      });
     }
   };
 
@@ -379,6 +408,7 @@ export default function App() {
       });
     }
     await logout();
+    currentUidRef.current = null;
     setUser(null);
     setAccessToken(null);
     setIsAdmin(false);
@@ -451,20 +481,23 @@ export default function App() {
             onOpenAdmin={() => setActiveView('admin')}
           />
         ) : (
-          <AdminPanel
-            user={user}
-            accessToken={accessToken}
-            isAdmin={isAdmin}
-            authChecking={authChecking}
-            authRedirectError={authRedirectError}
-            siteSettings={siteSettings}
-            onGoogleLogin={handleGoogleLogin}
-            onGoogleLoginRedirect={handleGoogleLoginRedirect}
-            onClearDriveToken={handleClearDriveToken}
-            onLogout={handleLogout}
-            onSwitchAccount={handleSwitchAccount}
-            onReverifyAdmin={handleReverifyAdmin}
-          />
+          <AdminErrorBoundary onResetToCatalog={() => setActiveView('catalog')}>
+            <AdminPanel
+              user={user}
+              accessToken={accessToken}
+              isAdmin={isAdmin}
+              authChecking={authChecking}
+              authRedirectError={authRedirectError}
+              siteSettings={siteSettings}
+              onGoogleLogin={handleGoogleLogin}
+              onGoogleIdTokenLogin={handleGoogleIdTokenLogin}
+              onGoogleLoginRedirect={handleGoogleLoginRedirect}
+              onClearDriveToken={handleClearDriveToken}
+              onLogout={handleLogout}
+              onSwitchAccount={handleSwitchAccount}
+              onReverifyAdmin={handleReverifyAdmin}
+            />
+          </AdminErrorBoundary>
         )}
       </main>
 
