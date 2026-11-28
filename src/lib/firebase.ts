@@ -79,6 +79,88 @@ export function getEffectiveUserEmail(user: User | null | undefined): string | n
   return providerEmail ? providerEmail.trim() : null;
 }
 
+export interface StoredDriveLinkProfile {
+  linked: boolean;
+  email: string;
+  userEmail?: string;
+  userName?: string;
+  usageBytes?: number;
+  limitBytes?: number | null;
+  linkedAt: number;
+}
+
+function getDriveLinkStorageKey(email: string): string {
+  return `jt_drive_linked_v1_${email.trim().toLowerCase()}`;
+}
+
+export function getStoredDriveProfile(
+  email: string | null | undefined
+): StoredDriveLinkProfile | null {
+  if (!email || !email.trim()) return null;
+  try {
+    const raw = localStorage.getItem(getDriveLinkStorageKey(email));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as StoredDriveLinkProfile;
+    if (parsed && parsed.linked === true) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function isDriveLinkedForEmail(
+  email: string | null | undefined
+): boolean {
+  return Boolean(getStoredDriveProfile(email)?.linked);
+}
+
+export function markDriveLinkedForEmail(
+  email: string | null | undefined,
+  details?: {
+    userEmail?: string;
+    userName?: string;
+    usageBytes?: number;
+    limitBytes?: number | null;
+  }
+): void {
+  if (!email || !email.trim()) return;
+  const normalized = email.trim().toLowerCase();
+  const existing = getStoredDriveProfile(normalized);
+  const next: StoredDriveLinkProfile = {
+    linked: true,
+    email: normalized,
+    userEmail: details?.userEmail ?? existing?.userEmail ?? normalized,
+    userName: details?.userName ?? existing?.userName,
+    usageBytes:
+      details?.usageBytes !== undefined
+        ? details.usageBytes
+        : existing?.usageBytes,
+    limitBytes:
+      details?.limitBytes !== undefined
+        ? details.limitBytes
+        : existing?.limitBytes,
+    linkedAt: existing?.linkedAt || Date.now(),
+  };
+  try {
+    localStorage.setItem(getDriveLinkStorageKey(normalized), JSON.stringify(next));
+  } catch {
+    // Ignore storage quota/privacy errors
+  }
+}
+
+export function clearDriveLinkedForEmail(
+  email: string | null | undefined
+): void {
+  if (!email || !email.trim()) return;
+  try {
+    localStorage.removeItem(getDriveLinkStorageKey(email));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -238,6 +320,7 @@ export const initAuth = (
           (await hasDriveFileScope(credential.accessToken))
         ) {
           cachedAccessToken = credential.accessToken;
+          markDriveLinkedForEmail(getEffectiveUserEmail(redirectResult.user));
         }
         onAuthChange(redirectResult.user, cachedAccessToken);
       }
@@ -263,7 +346,11 @@ export const initAuth = (
   });
 };
 
-export type GoogleConsentMode = boolean | 'drive' | 'gmail';
+export type GoogleConsentMode =
+  | boolean
+  | 'drive'
+  | 'drive_silent'
+  | 'gmail';
 
 function resolveProviderForConsent(
   consentMode: GoogleConsentMode,
@@ -279,6 +366,16 @@ function resolveProviderForConsent(
         ? { prompt: 'consent select_account', login_hint: loginHint }
         : { prompt: 'consent select_account' }
     );
+    return p;
+  }
+  if (consentMode === 'drive_silent') {
+    const p = new GoogleAuthProvider();
+    for (const scope of DRIVE_ONLY_SCOPES) {
+      p.addScope(scope);
+    }
+    if (loginHint) {
+      p.setCustomParameters({ login_hint: loginHint });
+    }
     return p;
   }
   if (consentMode === true || consentMode === 'drive') {
@@ -309,13 +406,18 @@ export const googleSignIn = async (
     isSigningIn = true;
     const result = await signInWithPopup(auth, activeProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
+    const signedInEmail = getEffectiveUserEmail(result.user);
     if (forceConsent && credential?.accessToken) {
       cachedAccessToken = credential.accessToken;
+      if (await hasDriveFileScope(credential.accessToken)) {
+        markDriveLinkedForEmail(signedInEmail);
+      }
     } else if (
       credential?.accessToken &&
       (await hasDriveFileScope(credential.accessToken))
     ) {
       cachedAccessToken = credential.accessToken;
+      markDriveLinkedForEmail(signedInEmail);
     }
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (err: unknown) {
@@ -327,6 +429,20 @@ export const googleSignIn = async (
   } finally {
     isSigningIn = false;
   }
+};
+
+export const ensureDriveAccessToken = async (
+  forceFresh = false
+): Promise<string | null> => {
+  if (!forceFresh && cachedAccessToken) {
+    return cachedAccessToken;
+  }
+  const currentEmail = getEffectiveUserEmail(auth.currentUser);
+  const mode: GoogleConsentMode = isDriveLinkedForEmail(currentEmail)
+    ? 'drive_silent'
+    : 'drive';
+  const res = await googleSignIn(mode);
+  return res?.accessToken || cachedAccessToken || null;
 };
 
 export const getAccessToken = (): string | null => {

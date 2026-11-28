@@ -3,11 +3,14 @@ import { User } from 'firebase/auth';
 import {
   auth,
   clearDriveAccessToken,
+  clearDriveLinkedForEmail,
+  ensureDriveAccessToken,
   getAccessToken,
   getEffectiveUserEmail,
   GoogleConsentMode,
   googleSignIn,
   initAuth,
+  isDriveLinkedForEmail,
   logout,
 } from './lib/firebase';
 import { recordAdminLoginEvent } from './lib/loginHistoryRepo';
@@ -113,6 +116,7 @@ export default function App() {
 
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [driveLinked, setDriveLinked] = useState(false);
   const [adminAccess, setAdminAccess] = useState<AdminAccessState>(() =>
     createDeniedAdminAccess()
   );
@@ -259,7 +263,14 @@ export default function App() {
               currentUidRef.current = firebaseUser.uid;
             }
             setUser(firebaseUser);
-            setAccessToken(token || getAccessToken());
+            const effectiveToken = token || getAccessToken();
+            setAccessToken(effectiveToken);
+            setDriveLinked(
+              Boolean(
+                effectiveToken ||
+                  isDriveLinkedForEmail(getEffectiveUserEmail(firebaseUser))
+              )
+            );
             setAuthRedirectError(null);
 
             const access = await resolveAdminForUser(firebaseUser);
@@ -313,6 +324,7 @@ export default function App() {
             currentUidRef.current = null;
             setUser(null);
             setAccessToken(null);
+            setDriveLinked(false);
             setAdminAccess(createDeniedAdminAccess());
           }
         } finally {
@@ -505,6 +517,12 @@ export default function App() {
         writeStoredAdminActivity(result.user.uid, Date.now());
         setUser(result.user);
         setAccessToken(result.accessToken);
+        setDriveLinked(
+          Boolean(
+            result.accessToken ||
+              isDriveLinkedForEmail(getEffectiveUserEmail(result.user))
+          )
+        );
         const access = await resolveAdminForUser(result.user);
         setAdminAccess(access);
         if (access.isAdmin) {
@@ -517,7 +535,8 @@ export default function App() {
             });
           } else if (
             forceDriveConsent === true ||
-            forceDriveConsent === 'drive'
+            forceDriveConsent === 'drive' ||
+            forceDriveConsent === 'drive_silent'
           ) {
             recordAdminLoginEvent({
               user: result.user,
@@ -543,6 +562,12 @@ export default function App() {
         const recoveredAccess = await resolveAdminForUser(auth.currentUser);
         currentUidRef.current = auth.currentUser.uid;
         setUser(auth.currentUser);
+        setDriveLinked(
+          Boolean(
+            getAccessToken() ||
+              isDriveLinkedForEmail(getEffectiveUserEmail(auth.currentUser))
+          )
+        );
         setAdminAccess(recoveredAccess);
         if (recoveredAccess.isAdmin) {
           setActiveView('admin');
@@ -569,6 +594,25 @@ export default function App() {
   const handleClearDriveToken = useCallback(() => {
     clearDriveAccessToken();
     setAccessToken(null);
+  }, []);
+
+  const handleEnsureDriveToken = useCallback(
+    async (forceFresh = false): Promise<string | null> => {
+      const freshToken = await ensureDriveAccessToken(forceFresh);
+      setAccessToken(freshToken);
+      if (freshToken) {
+        setDriveLinked(true);
+      }
+      return freshToken;
+    },
+    []
+  );
+
+  const handleUnlinkDrive = useCallback(() => {
+    clearDriveAccessToken();
+    setAccessToken(null);
+    clearDriveLinkedForEmail(getEffectiveUserEmail(auth.currentUser));
+    setDriveLinked(false);
   }, []);
 
   const handleLogout = async () => {
@@ -666,6 +710,7 @@ export default function App() {
             <AdminPanel
               user={user}
               accessToken={accessToken}
+              driveLinked={driveLinked}
               isAdmin={isAdmin}
               adminAccess={adminAccess}
               authChecking={authChecking}
@@ -675,6 +720,8 @@ export default function App() {
               siteSettings={siteSettings}
               onGoogleLogin={handleGoogleLogin}
               onClearDriveToken={handleClearDriveToken}
+              onEnsureDriveToken={handleEnsureDriveToken}
+              onUnlinkDrive={handleUnlinkDrive}
               onLogout={handleLogout}
               onSwitchAccount={handleSwitchAccount}
               onReverifyAdmin={handleReverifyAdmin}

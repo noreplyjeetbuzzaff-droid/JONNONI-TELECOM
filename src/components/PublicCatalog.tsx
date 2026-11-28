@@ -988,7 +988,7 @@ export const PublicCatalog: React.FC<PublicCatalogProps> = ({
                       </p>
                     )}
                     <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                      <li>বাটন ও স্মার্টফোন ফ্ল্যাশিং, আনব্রিক ও IMEI সমাধান</li>
+                      <li>বাটন ও স্মার্টফোন ফ্ল্যাশিং সমাধান</li>
                       <li>হার্ডওয়্যার আইসি, চার্জিং, নেটওয়ার্ক ও ডিসপ্লে সার্ভিসিং</li>
                       <li>৩ মাসে দক্ষ টেকনিশিয়ান গড়ার প্র্যাকটিক্যাল প্রশিক্ষণ</li>
                     </ul>

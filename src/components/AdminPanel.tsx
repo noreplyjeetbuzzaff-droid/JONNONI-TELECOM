@@ -86,9 +86,11 @@ import {
 import {
   checkTokenScopes,
   getEffectiveUserEmail,
+  getStoredDriveProfile,
   GoogleConsentMode,
   isBootstrappedAdminEmail,
   isPrimaryAdminEmail,
+  markDriveLinkedForEmail,
 } from '../lib/firebase';
 import {
   ClientDeviceInfo,
@@ -113,6 +115,7 @@ import { ShopMapSection } from './ShopMapSection';
 interface AdminPanelProps {
   user: User | null;
   accessToken: string | null;
+  driveLinked?: boolean;
   isAdmin: boolean;
   adminAccess?: AdminAccessState;
   authChecking: boolean;
@@ -122,6 +125,8 @@ interface AdminPanelProps {
   siteSettings: SiteSettings;
   onGoogleLogin: (forceDriveConsent?: GoogleConsentMode) => Promise<void>;
   onClearDriveToken?: () => void;
+  onEnsureDriveToken?: (forceFresh?: boolean) => Promise<string | null>;
+  onUnlinkDrive?: () => void;
   onLogout: () => Promise<void>;
   onSwitchAccount?: () => Promise<void>;
   onReverifyAdmin?: () => Promise<void>;
@@ -162,6 +167,7 @@ type AdminTab = 'files' | 'visitors' | 'seo' | 'settings' | 'admins' | 'history'
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   user,
   accessToken,
+  driveLinked = false,
   isAdmin,
   adminAccess,
   authChecking,
@@ -171,6 +177,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   siteSettings,
   onGoogleLogin,
   onClearDriveToken,
+  onEnsureDriveToken,
+  onUnlinkDrive,
   onLogout,
   onSwitchAccount,
   onReverifyAdmin,
@@ -314,8 +322,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!user || !isAdmin || !canFiles || !accessToken) {
+    if (!user || !isAdmin || !canFiles) {
       setDriveInfo(null);
+      return;
+    }
+    if (!accessToken) {
+      const stored = getStoredDriveProfile(effectiveEmail);
+      if (stored) {
+        setDriveInfo({
+          userEmail: stored.userEmail || stored.email,
+          userName: stored.userName || '',
+          usageBytes: stored.usageBytes || 0,
+          limitBytes: stored.limitBytes ?? null,
+        });
+        setDriveError(null);
+      } else {
+        setDriveInfo(null);
+      }
       return;
     }
     let cancelled = false;
@@ -324,6 +347,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         if (!cancelled) {
           setDriveInfo(info);
           setDriveError(null);
+          markDriveLinkedForEmail(effectiveEmail, info);
         }
       })
       .catch(async (err) => {
@@ -333,10 +357,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           if (cancelled) return;
           if (!scopes.hasDrive) {
             onClearDriveToken?.();
-            setDriveInfo(null);
-            setDriveError(
-              'গুগল ড্রাইভে ফাইল আপলোডের জন্য নিচের "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে ড্রাইভ অনুমতি দিন।'
-            );
+            if (!driveLinked) {
+              setDriveInfo(null);
+              setDriveError(
+                'গুগল ড্রাইভে ফাইল আপলোডের জন্য নিচের "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে ড্রাইভ অনুমতি দিন।'
+              );
+            }
             return;
           }
           setDriveError(
@@ -353,7 +379,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [user, isAdmin, canFiles, accessToken, onClearDriveToken]);
+  }, [user, isAdmin, canFiles, accessToken, driveLinked, effectiveEmail, onClearDriveToken]);
 
   useEffect(() => {
     if (!user || !isAdmin || !canFiles) {
@@ -596,9 +622,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       return;
     }
 
-    if (!accessToken) {
+    let activeDriveToken = accessToken;
+    if (!activeDriveToken && driveLinked && onEnsureDriveToken) {
+      try {
+        activeDriveToken = await onEnsureDriveToken(false);
+      } catch (err) {
+        setUploadError(
+          err instanceof Error
+            ? err.message
+            : 'গুগল ড্রাইভ সেশন নবায়ন করা যায়নি।'
+        );
+        return;
+      }
+    }
+
+    if (!activeDriveToken) {
       setUploadError(
-        'গুগল ড্রাইভ সেশন নেই। "গুগল ড্রাইভ সংযুক্ত করুন" চাপুন অথবা উপরের "ড্রাইভ লিংক দিয়ে প্রকাশ" ট্যাব ব্যবহার করুন।'
+        'গুগল ড্রাইভ সংযুক্ত নেই। উপরের "গুগল ড্রাইভ সংযুক্ত করুন" চাপুন অথবা "ড্রাইভ লিংক দিয়ে প্রকাশ" ট্যাব ব্যবহার করুন।'
       );
       return;
     }
@@ -621,17 +661,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setUploading(true);
     setUploadProgress(0);
     try {
-      setUploadStatus('গুগল ড্রাইভ ফোল্ডার প্রস্তুত হচ্ছে...');
-      const folderId = await ensureAppFolder(accessToken);
+      const performDriveUpload = async (tokenToUse: string) => {
+        setUploadStatus('গুগল ড্রাইভ ফোল্ডার প্রস্তুত হচ্ছে...');
+        const folderId = await ensureAppFolder(tokenToUse);
 
-      setUploadStatus('গুগল ড্রাইভে ফাইল আপলোড হচ্ছে...');
-      const driveResult = await uploadFileToDrive({
-        accessToken,
-        file: selectedFile,
-        folderId,
-        makePublic,
-        onProgress: (pct) => setUploadProgress(pct),
-      });
+        setUploadStatus('গুগল ড্রাইভে ফাইল আপলোড হচ্ছে...');
+        return uploadFileToDrive({
+          accessToken: tokenToUse,
+          file: selectedFile,
+          folderId,
+          makePublic,
+          onProgress: (pct) => setUploadProgress(pct),
+        });
+      };
+
+      let driveResult;
+      try {
+        driveResult = await performDriveUpload(activeDriveToken);
+      } catch (firstErr) {
+        if (isDriveScopeOrAuthError(firstErr) && onEnsureDriveToken) {
+          setUploadStatus('গুগল ড্রাইভ সেশন স্বয়ংক্রিয়ভাবে নবায়ন হচ্ছে...');
+          const refreshedToken = await onEnsureDriveToken(true);
+          if (!refreshedToken) {
+            throw firstErr;
+          }
+          activeDriveToken = refreshedToken;
+          driveResult = await performDriveUpload(refreshedToken);
+        } else {
+          throw firstErr;
+        }
+      }
 
       setUploadStatus('ক্যাটালগে ফাইলের তথ্য সংরক্ষণ হচ্ছে...');
       await createFlashFileRecord({
@@ -667,14 +726,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         fileInputRef.current.value = '';
       }
 
-      getDriveStorageInfo(accessToken)
-        .then(setDriveInfo)
-        .catch(() => {});
+      if (activeDriveToken) {
+        getDriveStorageInfo(activeDriveToken)
+          .then((info) => {
+            setDriveInfo(info);
+            markDriveLinkedForEmail(effectiveEmail, info);
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       if (isDriveScopeOrAuthError(err)) {
         onClearDriveToken?.();
         setUploadError(
-          'গুগল ড্রাইভের অনুমতি বা সেশন শেষ হয়েছে। উপরের "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে ড্রাইভ অনুমতি দিন।'
+          'গুগল ড্রাইভের অনুমতি বা সেশন নবায়ন করা যায়নি। পুনরায় ড্রাইভ সংযুক্ত করুন।'
         );
       } else {
         setUploadError(
@@ -693,12 +757,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     file: FlashFileRecord,
     updates: UpdateFlashFileInput
   ) => {
-    if (accessToken && updates.isPublicDrive !== file.isPublicDrive) {
-      await setDrivePublicPermission(
-        accessToken,
-        file.driveFileId,
-        updates.isPublicDrive
-      );
+    let tokenToUse = accessToken;
+    if (!tokenToUse && driveLinked && updates.isPublicDrive !== file.isPublicDrive && onEnsureDriveToken) {
+      tokenToUse = await onEnsureDriveToken(false);
+    }
+    if (tokenToUse && updates.isPublicDrive !== file.isPublicDrive) {
+      try {
+        await setDrivePublicPermission(
+          tokenToUse,
+          file.driveFileId,
+          updates.isPublicDrive
+        );
+      } catch (err) {
+        if (isDriveScopeOrAuthError(err) && onEnsureDriveToken) {
+          const refreshed = await onEnsureDriveToken(true);
+          if (refreshed) {
+            await setDrivePublicPermission(
+              refreshed,
+              file.driveFileId,
+              updates.isPublicDrive
+            );
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
     }
     await updateFlashFileRecord(file.id, updates);
   };
@@ -708,21 +793,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setDeletingBusy(true);
     setFilesError(null);
     try {
-      if (accessToken) {
-        await deleteDriveFile(accessToken, deletingFile.driveFileId);
+      let tokenToUse = accessToken;
+      if (!tokenToUse && driveLinked && onEnsureDriveToken) {
+        tokenToUse = await onEnsureDriveToken(false);
+      }
+      if (tokenToUse) {
+        try {
+          await deleteDriveFile(tokenToUse, deletingFile.driveFileId);
+        } catch (driveErr) {
+          if (isDriveScopeOrAuthError(driveErr) && onEnsureDriveToken) {
+            const refreshed = await onEnsureDriveToken(true);
+            if (refreshed) {
+              tokenToUse = refreshed;
+              await deleteDriveFile(refreshed, deletingFile.driveFileId);
+            } else {
+              throw driveErr;
+            }
+          } else {
+            throw driveErr;
+          }
+        }
       }
       await deleteFlashFileRecord(deletingFile.id);
       setDeletingFile(null);
-      if (accessToken) {
-        getDriveStorageInfo(accessToken)
-          .then(setDriveInfo)
+      if (tokenToUse) {
+        getDriveStorageInfo(tokenToUse)
+          .then((info) => {
+            setDriveInfo(info);
+            markDriveLinkedForEmail(effectiveEmail, info);
+          })
           .catch(() => {});
       }
     } catch (err) {
       if (isDriveScopeOrAuthError(err)) {
         onClearDriveToken?.();
         setFilesError(
-          'গুগল ড্রাইভ থেকে ফাইল মুছতে ড্রাইভ অনুমতি প্রয়োজন। "গুগল ড্রাইভ সংযুক্ত করুন" বাটনে ক্লিক করে পুনরায় অনুমতি দিন।'
+          'গুগল ড্রাইভ থেকে ফাইল মুছতে ড্রাইভ অনুমতি প্রয়োজন। পুনরায় ড্রাইভ অনুমতি দিন।'
         );
       } else {
         setFilesError(
@@ -1401,21 +1507,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           {/* Drive Quota Summary Strip */}
           <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="card-3d rounded-xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-                <HardDrive className="h-4 w-4 text-sky-600" />
-                <span>গুগল ড্রাইভ স্টোরেজ</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
+                  <HardDrive className="h-4 w-4 text-sky-600" />
+                  <span>গুগল ড্রাইভ স্টোরেজ</span>
+                </div>
+                {(accessToken || driveLinked) && (
+                  <span className="inline-flex items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                    <CheckCircle2 className="h-3 w-3" />
+                    <span>লাইফটাইম সংযুক্ত</span>
+                  </span>
+                )}
               </div>
               <p className="mt-2 font-mono text-lg font-semibold text-slate-900 tabular-nums">
-                {driveInfo
+                {driveInfo && driveInfo.usageBytes > 0
                   ? `${formatBytes(driveInfo.usageBytes)}${
                       driveInfo.limitBytes
                         ? ` / ${formatBytes(driveInfo.limitBytes)}`
                         : ''
                     }`
-                  : 'সংযুক্ত'}
+                  : accessToken || driveLinked
+                    ? 'সংযুক্ত (স্থায়ী)'
+                    : 'সংযুক্ত নয়'}
               </p>
               <p className="mt-0.5 text-xs text-slate-500 truncate">
-                {driveInfo?.userEmail || user.email}
+                {driveInfo?.userEmail || effectiveEmail || user.email}
               </p>
             </div>
 
@@ -1499,10 +1615,52 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </button>
               </div>
 
-              {uploadMode === 'file' && !accessToken && (
+              {uploadMode === 'file' && (accessToken || driveLinked) && (
+                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-900">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                      <span>
+                        Google Drive লাইফটাইম সংযুক্ত আছে (
+                        {driveInfo?.userEmail || effectiveEmail || user.email})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {!accessToken && (
+                        <button
+                          type="button"
+                          onClick={() => handleLoginClick('drive_silent')}
+                          disabled={loggingIn}
+                          className="rounded border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100 cursor-pointer disabled:opacity-60"
+                        >
+                          {loggingIn ? 'সিঙ্ক হচ্ছে...' : 'সেশন রিফ্রেশ'}
+                        </button>
+                      )}
+                      {onUnlinkDrive && (
+                        <button
+                          type="button"
+                          onClick={onUnlinkDrive}
+                          className="rounded border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
+                        >
+                          বিচ্ছিন্ন করুন
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {!accessToken && (
+                    <p className="mt-1.5 text-[11px] text-emerald-800">
+                      ফাইল আপলোড বা ডিলিট করলেই ড্রাইভ সেশন স্বয়ংক্রিয়ভাবে
+                      সক্রিয় হয়ে যাবে—আলাদা করে সংযোগ করতে হবে না।
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {uploadMode === 'file' && !accessToken && !driveLinked && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3.5 text-xs text-amber-900 space-y-2.5">
                   <p className="leading-relaxed">
-                    গুগল ড্রাইভে সরাসরি ফাইল আপলোড করতে ড্রাইভ অনুমতি সচল করুন।
+                    গুগল ড্রাইভে সরাসরি ফাইল আপলোড করতে একবার ড্রাইভ সংযুক্ত
+                    করুন (একবার সংযুক্ত করলে স্থায়ীভাবে লিংক থাকবে)।
                   </p>
                   {loginError && (
                     <p className="rounded border border-red-200 bg-red-50 p-2 text-red-700 font-medium leading-relaxed">
@@ -2533,7 +2691,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           user={user}
           isBootstrapped={Boolean(effectiveAccess.isPrimary)}
           shopName={siteSettings.shopName}
-          hasDriveConnected={Boolean(accessToken)}
+          hasDriveConnected={Boolean(accessToken || driveLinked)}
         />
       )}
 
